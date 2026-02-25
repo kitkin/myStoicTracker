@@ -359,11 +359,39 @@ svg text{font-family:-apple-system,sans-serif}
 .date-picker-bar .dp-info{font-size:12px;color:var(--muted);margin-left:auto}
 .date-picker-bar .dp-days{font-size:14px;font-weight:600;color:var(--accent);font-family:'SF Mono',monospace}
 .dyn-card .card-value{transition:color .3s}
+.tabs{margin-top:8px}
+.tab-bar{display:flex;gap:2px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0}
+.tab-bar .tab-btn{padding:12px 20px;font-size:13px;font-weight:600;background:transparent;border:none;border-bottom:3px solid transparent;color:var(--muted);cursor:pointer;transition:color .2s,border-color .2s}
+.tab-bar .tab-btn:hover{color:var(--text)}
+.tab-bar .tab-btn.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tab-panel{display:none}
+.tab-panel.active{display:block}
+.growth-hero{text-align:center;padding:40px 20px;background:linear-gradient(180deg,var(--card) 0%,var(--bg) 100%);border-radius:16px;border:1px solid var(--border);margin-bottom:24px}
+.growth-hero .equity-btc{font-size:56px;font-weight:800;font-family:'SF Mono','Fira Code',monospace;background:linear-gradient(135deg,var(--gold),var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;transition:transform .15s ease-out}
+.growth-hero .equity-usd{font-size:22px;color:var(--muted);margin-top:8px}
+.growth-hero .day-label{font-size:12px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);margin-top:16px}
+.growth-timeline{height:12px;background:var(--border);border-radius:6px;margin:24px 0;overflow:hidden;cursor:pointer}
+.growth-timeline .growth-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--green),var(--accent));transition:width .25s ease-out}
+.growth-controls{display:flex;align-items:center;justify-content:center;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+.growth-controls button{padding:12px 24px;font-size:14px;font-weight:600;background:var(--accent);color:var(--bg);border:none;border-radius:10px;cursor:pointer;transition:opacity .2s}
+.growth-controls button:hover{opacity:.9}
+.growth-controls button.secondary{background:var(--card);color:var(--text);border:1px solid var(--border)}
+.growth-controls input[type="range"]{width:280px;accent-color:var(--accent)}
+.growth-chart-wrap{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:24px;min-height:320px}
+.growth-chart-wrap svg{width:100%;height:280px;display:block}
 </style></head><body>
 <div class="container">
 <h1>myStoicTracker</h1>
 <p class="subtitle">Binance Futures Bot Performance &mdash; BTC/USDT: $${fmtU(btcPrice)}</p>
 
+<div class="tabs">
+<nav class="tab-bar" role="tablist">
+<button type="button" class="tab-btn active" data-tab="tab-summary" role="tab">Summary</button>
+<button type="button" class="tab-btn" data-tab="tab-charts" role="tab">Charts &amp; data</button>
+<button type="button" class="tab-btn" data-tab="tab-growth" role="tab">Growth</button>
+</nav>
+
+<div id="tab-summary" class="tab-panel active" role="tabpanel">
 <div class="date-picker-bar">
   <label for="startDate">Analysis Start Date</label>
   <input type="date" id="startDate" value="2025-10-18" min="${new Date(START_TIME).toISOString().slice(0,10)}" max="${new Date(NOW).toISOString().slice(0,10)}">
@@ -393,6 +421,19 @@ svg text{font-family:-apple-system,sans-serif}
   <div class="stat-item"><span class="stat-label">Period income records:</span><span class="stat-val" id="cIncomeCount">&mdash;</span></div>
 </div>
 
+<!-- FORECAST CALCULATOR -->
+<div class="calc-section" id="calculator">
+<h2>Forecast Calculator</h2>
+<p style="color:var(--muted);font-size:12px;margin-bottom:16px" id="fcDescription">Based on data from the selected start date. Adjust period and BTC price to explore scenarios.</p>
+<div class="calc-inputs">
+  <div class="calc-input"><label>Forecast Period (months)</label><input type="number" id="fcMonths" value="12" min="1" max="120"></div>
+  <div class="calc-input"><label>Expected BTC Price (USD)</label><input type="number" id="fcBtcPrice" value="120000" min="1000" max="10000000" step="1000"></div>
+</div>
+<div class="scenarios" id="scenarios"></div>
+</div>
+</div>
+
+<div id="tab-charts" class="tab-panel" role="tabpanel">
 ${equityCurve ? `<div class="chart-box"><h3>Equity Curve — Compound Growth (BTC)</h3>${equityCurve}</div>` : ''}
 ${drawdownChart ? `<div class="chart-box"><h3>Drawdown from Peak (BTC)</h3>${drawdownChart}</div>` : ''}
 
@@ -410,16 +451,52 @@ ${rollingRoiChart ? `<div class="chart-box"><h3>Rolling 30-Day PNL (BTC) — Per
 ${pnlChart ? `<div class="chart-box"><h3>Cumulative PNL (BTC) — Realized + Funding + Commissions</h3>${pnlChart}</div>` : ''}
 ${weeklyChart ? `<div class="chart-box"><h3>Weekly PNL (BTC)</h3>${weeklyChart}</div>` : ''}
 ${monthlyChart ? `<div class="chart-box"><h3>Monthly PNL (BTC) with Trend Line</h3>${monthlyChart}</div>` : ''}
+${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast</h3>${trendChart}</div>` : ''}
 
-<!-- FORECAST CALCULATOR -->
-<div class="calc-section" id="calculator">
-<h2>Forecast Calculator</h2>
-<p style="color:var(--muted);font-size:12px;margin-bottom:16px" id="fcDescription">Based on data from the selected start date. Adjust period and BTC price to explore scenarios.</p>
-<div class="calc-inputs">
-  <div class="calc-input"><label>Forecast Period (months)</label><input type="number" id="fcMonths" value="12" min="1" max="120"></div>
-  <div class="calc-input"><label>Expected BTC Price (USD)</label><input type="number" id="fcBtcPrice" value="120000" min="1000" max="10000000" step="1000"></div>
+<h2 class="section-title">Monthly PNL Breakdown</h2>
+<table><thead><tr><th>Month</th><th>PNL (BTC)</th><th>PNL (USDT)</th><th>Cumulative (BTC)</th></tr></thead>
+<tbody>${(() => { let cum = 0; return monthlyPnl.map(m => { cum += m.pnlBtc; const cls = m.pnlBtc >= 0 ? 'positive' : 'negative'; return '<tr><td>' + m.key + '</td><td class="' + cls + '">' + (m.pnlBtc >= 0 ? '+' : '') + m.pnlBtc.toFixed(8) + '</td><td class="' + cls + '">' + (m.pnlUsdt >= 0 ? '+' : '') + fmtU(m.pnlUsdt) + '</td><td>' + cum.toFixed(8) + '</td></tr>'; }).join(''); })()}</tbody></table>
+
+<h2 class="section-title">External Deposits</h2>
+${depositDetails.length > 0 ? `<table><thead><tr><th>Date</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>BTC Price</th></tr></thead>
+<tbody>${depositDetails.map(d => `<tr><td>${fmtDate(d.insertTime)}</td><td>${d.coin}</td><td>${parseFloat(d.amount).toFixed(8)}</td><td>${fmt(d.btcValue)}</td><td>${d.btcPriceAtTime ? '$' + fmtU(d.btcPriceAtTime) : '-'}</td></tr>`).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
+
+<h2 class="section-title">Internal Transfers (Spot ↔ Futures)</h2>
+<table><thead><tr><th>Date</th><th>Direction</th><th>Asset</th><th>Amount</th><th>BTC Value</th></tr></thead>
+<tbody>${[...transfersToFutures.map(t => ({ ...t, dir: 'Spot → Futures' })), ...transfersFromFutures.map(t => ({ ...t, dir: 'Futures → Spot' }))].sort((a, b) => b.timestamp - a.timestamp).map(t => { const bv = toBtc(t.asset, parseFloat(t.amount), priceMap); return '<tr><td>' + fmtDate(t.timestamp) + '</td><td>' + t.dir + '</td><td>' + t.asset + '</td><td>' + parseFloat(t.amount).toFixed(8) + '</td><td>' + fmt(bv) + '</td></tr>'; }).join('')}</tbody></table>
+
+<h2 class="section-title">Top Open Positions</h2>
+<table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>PNL (USDT)</th><th>PNL (BTC)</th></tr></thead>
+<tbody>${topPositions.map(p => { const pb = btcPrice ? p.pnlUsdt / btcPrice : 0; const sd = p.qty > 0 ? 'LONG' : 'SHORT'; const sc = p.qty > 0 ? 'positive' : 'negative'; const pc = p.pnlUsdt >= 0 ? 'positive' : 'negative'; return '<tr><td><strong>' + p.symbol + '</strong></td><td class="' + sc + '">' + sd + '</td><td>' + Math.abs(p.qty).toFixed(4) + '</td><td>' + p.entry.toFixed(6) + '</td><td class="' + pc + '">' + (p.pnlUsdt >= 0 ? '+' : '') + fmtU(p.pnlUsdt) + '</td><td class="' + pc + '">' + (pb >= 0 ? '+' : '') + fmtS(pb) + '</td></tr>'; }).join('')}</tbody></table>
+
+<h2 class="section-title">Methodology</h2>
+<div class="card" style="font-size:12px;line-height:1.8">
+<p><strong>Portfolio Value (BTC)</strong> = Futures wallet balance + Unrealized PNL, converted to BTC.</p>
+<p><strong>Robot P&L</strong> = Current portfolio (BTC) − External deposits (BTC). Isolates bot performance from capital injections.</p>
+<p><strong>ROI (BTC)</strong> = Robot P&L / External deposits. Denominated in BTC, not USD.</p>
+<p><strong>Equity Curve</strong> = Starting capital grown by daily compound returns. Shows realistic growth trajectory vs. a flat "no trading" baseline.</p>
+<p><strong>Drawdown</strong> = Decline from the equity curve peak at each point. Max drawdown = largest peak-to-trough loss.</p>
+<p><strong>Rolling 30-Day PNL</strong> = Sum of daily PNL over a sliding 30-day window. Reveals performance stability and seasonality.</p>
+<p><strong>Sharpe Ratio</strong> = (avg daily return / stddev of daily returns) × √365. Values above 1.0 indicate good risk-adjusted returns.</p>
+<p><strong>Profit Factor</strong> = Total gross profits / Total gross losses. Above 1.0 means profits exceed losses.</p>
+<p><strong>Forecast (compound)</strong> = Portfolio × (1 + monthly ROI)^months. Uses compound growth where profits reinvest proportionally. Simple (linear) shown for comparison.</p>
 </div>
-<div class="scenarios" id="scenarios"></div>
+</div>
+
+<div id="tab-growth" class="tab-panel" role="tabpanel">
+<div class="growth-hero">
+<div class="day-label" id="growthDayLabel">Day 0</div>
+<div class="equity-btc" id="growthEquityBtc">0.00000000</div>
+<div class="equity-usd" id="growthEquityUsd">$0.00</div>
+<div class="growth-timeline" id="growthTimeline"><div class="growth-fill" id="growthFill" style="width:0%"></div></div>
+<div class="growth-controls">
+<button type="button" class="tab-btn secondary" id="growthPlay">Play</button>
+<input type="range" id="growthSlider" min="0" max="100" value="0" aria-label="Day">
+<span id="growthSpeedLabel">1x</span>
+</div>
+<div class="growth-chart-wrap" id="growthChartWrap"></div>
+</div>
+</div>
 </div>
 
 <script>
@@ -552,38 +629,73 @@ $('startDate').addEventListener('change',masterRecalc);
 $('fcMonths').addEventListener('input',recalcForecast);
 $('fcBtcPrice').addEventListener('input',recalcForecast);
 masterRecalc();
+
+(function initTabs(){
+  const bar=document.querySelector('.tab-bar');
+  const panels=document.querySelectorAll('.tab-panel');
+  if(!bar)return;
+  bar.querySelectorAll('.tab-btn').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const id=btn.getAttribute('data-tab');
+      bar.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+      panels.forEach(p=>{p.classList.remove('active');if(p.id===id)p.classList.add('active');});
+      btn.classList.add('active');
+      if(id==='tab-growth')window._growthInit&&window._growthInit();
+    });
+  });
+})();
+
+(function initGrowth(){
+  const daily=RAW.dailyPnl;if(!daily||daily.length<2)return;
+  const totalPnl=daily.reduce((s,d)=>s+d.b,0);
+  const startEquity=RAW.currentBtc-totalPnl;
+  const equityByDay=[startEquity];let e=startEquity;
+  for(let i=0;i<daily.length;i++){e+=daily[i].b;equityByDay.push(e);}
+  const N=equityByDay.length-1;
+  const fmtD=ts=>new Date(ts).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const $=id=>document.getElementById(id);
+  const wrap=$('growthChartWrap');
+  const W=wrap?Math.min(1280,wrap.offsetWidth||1280):1280;const H=280;const p={t:20,r:20,b:30,l:60};
+  const cw=W-p.l-p.r;const ch=H-p.t-p.b;
+  const mn=Math.min(...equityByDay)*0.998;const mx=Math.max(...equityByDay)*1.002;
+  const sx=i=>p.l+(i/N)*cw;const sy=v=>p.t+ch-((v-mn)/(mx-mn||1))*ch;
+  function renderChart(dayIdx){
+    if(!wrap)return;
+    const pts=[];for(let i=0;i<=dayIdx;i++)pts.push(sx(i)+','+sy(equityByDay[i]));
+    const line='M'+pts.join('L');const area=line+'L'+sx(dayIdx)+','+(p.t+ch)+'L'+p.l+','+(p.t+ch)+'Z';
+    const yL=[];for(let i=0;i<=4;i++){const v=mn+(mx-mn)*i/4;yL.push('<line x1="'+p.l+'" y1="'+sy(v)+'" x2="'+(W-p.r)+'" y2="'+sy(v)+'" stroke="#30363d" stroke-width="0.5"/>');yL.push('<text x="'+(p.l-5)+'" y="'+(sy(v)+4)+'" text-anchor="end" fill="#8b949e" font-size="10">'+v.toFixed(4)+'</text>');}
+    wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:280px"><defs><linearGradient id="growthGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#58a6ff" stop-opacity="0.3"/><stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/></defs>'+yL.join('')+'<path d="'+area+'" fill="url(#growthGrad)"/><path d="'+line+'" fill="none" stroke="#58a6ff" stroke-width="2.5"/><circle cx="'+sx(dayIdx)+'" cy="'+sy(equityByDay[dayIdx])+'" r="6" fill="#ffd740" stroke="#0d1117" stroke-width="2"/></svg>';
+  }
+  function updateUI(dayIdx){
+    const e=equityByDay[dayIdx];const d=daily[Math.min(dayIdx,daily.length-1)];
+    $('growthEquityBtc').textContent=e.toFixed(8)+' BTC';
+    $('growthEquityUsd').textContent='$'+(e*RAW.btcPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    $('growthDayLabel').textContent=fmtD(d.t)+' — Day '+(dayIdx+1)+' of '+(N+1);
+    $('growthFill').style.width=(100*dayIdx/N)+'%';
+    $('growthSlider').value=dayIdx;
+    $('growthSlider').max=N;
+    renderChart(dayIdx);
+  }
+  let playing=false;let animId=null;let speed=1;
+  $('growthSlider').max=N;
+  $('growthSlider').addEventListener('input',()=>{const i=parseInt($('growthSlider').value,10);updateUI(i);});
+  $('growthTimeline').addEventListener('click',ev=>{const r=$('growthTimeline').getBoundingClientRect();const x=ev.clientX-r.left;const i=Math.round((x/r.width)*N);updateUI(Math.max(0,Math.min(i,N)));});
+  $('growthPlay').addEventListener('click',()=>{
+    playing=!playing;$('growthPlay').textContent=playing?'Pause':'Play';
+    if(playing){
+      let idx=parseInt($('growthSlider').value,10);
+      function tick(){if(!playing)return;idx++;if(idx>N){playing=false;$('growthPlay').textContent='Play';return;}updateUI(idx);animId=setTimeout(tick,80/speed);}
+      tick();
+    }else if(animId)clearTimeout(animId);
+  });
+  const speeds=[0.5,1,2,4];let si=1;
+  const speedBtn=document.createElement('button');speedBtn.className='tab-btn secondary';speedBtn.textContent='Speed';speedBtn.type='button';$('growthSpeedLabel').parentNode.insertBefore(speedBtn,$('growthSpeedLabel'));
+  speedBtn.addEventListener('click',()=>{si=(si+1)%speeds.length;speed=speeds[si];$('growthSpeedLabel').textContent=speeds[si]+'x';});
+  $('growthSpeedLabel').textContent=speeds[si]+'x';
+  window._growthInit=function(){updateUI(N);};
+  updateUI(N);
+})();
 </script>
-
-${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast</h3>${trendChart}</div>` : ''}
-
-<h2 class="section-title">Monthly PNL Breakdown</h2>
-<table><thead><tr><th>Month</th><th>PNL (BTC)</th><th>PNL (USDT)</th><th>Cumulative (BTC)</th></tr></thead>
-<tbody>${(() => { let cum = 0; return monthlyPnl.map(m => { cum += m.pnlBtc; const cls = m.pnlBtc >= 0 ? 'positive' : 'negative'; return '<tr><td>' + m.key + '</td><td class="' + cls + '">' + (m.pnlBtc >= 0 ? '+' : '') + m.pnlBtc.toFixed(8) + '</td><td class="' + cls + '">' + (m.pnlUsdt >= 0 ? '+' : '') + fmtU(m.pnlUsdt) + '</td><td>' + cum.toFixed(8) + '</td></tr>'; }).join(''); })()}</tbody></table>
-
-<h2 class="section-title">External Deposits</h2>
-${depositDetails.length > 0 ? `<table><thead><tr><th>Date</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>BTC Price</th></tr></thead>
-<tbody>${depositDetails.map(d => `<tr><td>${fmtDate(d.insertTime)}</td><td>${d.coin}</td><td>${parseFloat(d.amount).toFixed(8)}</td><td>${fmt(d.btcValue)}</td><td>${d.btcPriceAtTime ? '$' + fmtU(d.btcPriceAtTime) : '-'}</td></tr>`).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
-
-<h2 class="section-title">Internal Transfers (Spot ↔ Futures)</h2>
-<table><thead><tr><th>Date</th><th>Direction</th><th>Asset</th><th>Amount</th><th>BTC Value</th></tr></thead>
-<tbody>${[...transfersToFutures.map(t => ({ ...t, dir: 'Spot → Futures' })), ...transfersFromFutures.map(t => ({ ...t, dir: 'Futures → Spot' }))].sort((a, b) => b.timestamp - a.timestamp).map(t => { const bv = toBtc(t.asset, parseFloat(t.amount), priceMap); return '<tr><td>' + fmtDate(t.timestamp) + '</td><td>' + t.dir + '</td><td>' + t.asset + '</td><td>' + parseFloat(t.amount).toFixed(8) + '</td><td>' + fmt(bv) + '</td></tr>'; }).join('')}</tbody></table>
-
-<h2 class="section-title">Top Open Positions</h2>
-<table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>PNL (USDT)</th><th>PNL (BTC)</th></tr></thead>
-<tbody>${topPositions.map(p => { const pb = btcPrice ? p.pnlUsdt / btcPrice : 0; const sd = p.qty > 0 ? 'LONG' : 'SHORT'; const sc = p.qty > 0 ? 'positive' : 'negative'; const pc = p.pnlUsdt >= 0 ? 'positive' : 'negative'; return '<tr><td><strong>' + p.symbol + '</strong></td><td class="' + sc + '">' + sd + '</td><td>' + Math.abs(p.qty).toFixed(4) + '</td><td>' + p.entry.toFixed(6) + '</td><td class="' + pc + '">' + (p.pnlUsdt >= 0 ? '+' : '') + fmtU(p.pnlUsdt) + '</td><td class="' + pc + '">' + (pb >= 0 ? '+' : '') + fmtS(pb) + '</td></tr>'; }).join('')}</tbody></table>
-
-<h2 class="section-title">Methodology</h2>
-<div class="card" style="font-size:12px;line-height:1.8">
-<p><strong>Portfolio Value (BTC)</strong> = Futures wallet balance + Unrealized PNL, converted to BTC.</p>
-<p><strong>Robot P&L</strong> = Current portfolio (BTC) − External deposits (BTC). Isolates bot performance from capital injections.</p>
-<p><strong>ROI (BTC)</strong> = Robot P&L / External deposits. Denominated in BTC, not USD.</p>
-<p><strong>Equity Curve</strong> = Starting capital grown by daily compound returns. Shows realistic growth trajectory vs. a flat "no trading" baseline.</p>
-<p><strong>Drawdown</strong> = Decline from the equity curve peak at each point. Max drawdown = largest peak-to-trough loss.</p>
-<p><strong>Rolling 30-Day PNL</strong> = Sum of daily PNL over a sliding 30-day window. Reveals performance stability and seasonality.</p>
-<p><strong>Sharpe Ratio</strong> = (avg daily return / stddev of daily returns) × √365. Values above 1.0 indicate good risk-adjusted returns.</p>
-<p><strong>Profit Factor</strong> = Total gross profits / Total gross losses. Above 1.0 means profits exceed losses.</p>
-<p><strong>Forecast (compound)</strong> = Portfolio × (1 + monthly ROI)^months. Uses compound growth where profits reinvest proportionally. Simple (linear) shown for comparison.</p>
-</div>
 
 <div class="footer">Generated by myStoicTracker &mdash; ${new Date().toLocaleString('ru-RU')} &mdash; All values in BTC &mdash; <a href="https://github.com/kitkin/myStoicTracker" style="color:var(--accent)">GitHub</a></div>
 </div></body></html>`;
@@ -665,8 +777,9 @@ function genEquityCurve(timeline, totalBtc) {
 
   const lastEquity = points[points.length - 1].equity;
   const eqColor = lastEquity >= startEquity ? '#00c853' : '#ff1744';
+  const xL = xAxisDateLabels(t0, t1, sx, W, H, p);
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:200px"><defs><linearGradient id="eqg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${eqColor}" stop-opacity="0.2"/><stop offset="100%" stop-color="${eqColor}" stop-opacity="0"/></linearGradient></defs>${yL}${baseLine}${baseLabel}<path d="${area}" fill="url(#eqg)"/><path d="${line}" fill="none" stroke="${eqColor}" stroke-width="2"/></svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:200px"><defs><linearGradient id="eqg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${eqColor}" stop-opacity="0.2"/><stop offset="100%" stop-color="${eqColor}" stop-opacity="0"/></linearGradient></defs>${yL}${xL}${baseLine}${baseLabel}<path d="${area}" fill="url(#eqg)"/><path d="${line}" fill="none" stroke="${eqColor}" stroke-width="2"/></svg>`;
 }
 
 function genDrawdownChart(timeline, totalBtc) {
@@ -696,8 +809,9 @@ function genDrawdownChart(timeline, totalBtc) {
 
   let yL = `<line x1="${p.l}" y1="${zY}" x2="${W - p.r}" y2="${zY}" stroke="#8b949e" stroke-width="0.5"/>`;
   for (let i = 1; i <= 3; i++) { const v = mn * i / 3; const y = sy(v); yL += `<text x="${p.l - 5}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="8">${v.toFixed(5)}</text>`; }
+  const xL = xAxisDateLabels(t0, t1, sx, W, H, p);
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:140px"><defs><linearGradient id="ddg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff1744" stop-opacity="0.05"/><stop offset="100%" stop-color="#ff1744" stop-opacity="0.3"/></linearGradient></defs>${yL}<path d="${area}" fill="url(#ddg)"/><path d="${line}" fill="none" stroke="#ff1744" stroke-width="1.5"/></svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:140px"><defs><linearGradient id="ddg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#ff1744" stop-opacity="0.05"/><stop offset="100%" stop-color="#ff1744" stop-opacity="0.3"/></linearGradient></defs>${yL}${xL}<path d="${area}" fill="url(#ddg)"/><path d="${line}" fill="none" stroke="#ff1744" stroke-width="1.5"/></svg>`;
 }
 
 function genRollingRoiChart(timeline, totalBtc) {
@@ -735,8 +849,19 @@ function genRollingRoiChart(timeline, totalBtc) {
 
   const lastVal = vals[vals.length - 1];
   const col = lastVal >= 0 ? '#00c853' : '#ff1744';
+  const xL = xAxisDateLabels(t0, t1, sx, W, H, p);
 
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:160px"><defs><linearGradient id="rrg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${col}" stop-opacity="0.15"/><stop offset="50%" stop-color="${col}" stop-opacity="0"/><stop offset="100%" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${yL}<path d="${line}" fill="none" stroke="${col}" stroke-width="1.5"/></svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:160px"><defs><linearGradient id="rrg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${col}" stop-opacity="0.15"/><stop offset="50%" stop-color="${col}" stop-opacity="0"/><stop offset="100%" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${yL}${xL}<path d="${line}" fill="none" stroke="${col}" stroke-width="1.5"/></svg>`;
+}
+
+function xAxisDateLabels(t0, t1, sx, W, H, p, count = 6) {
+  let xL = '';
+  for (let i = 0; i < count; i++) {
+    const t = t0 + (i / (count - 1 || 1)) * (t1 - t0);
+    const label = new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+    xL += `<text x="${sx(t)}" y="${H - 5}" text-anchor="middle" fill="#8b949e" font-size="8">${label}</text>`;
+  }
+  return xL;
 }
 
 function genPnlChart(timeline) {
@@ -752,10 +877,11 @@ function genPnlChart(timeline) {
   const zY = sy(0);
   let yL = `<line x1="${p.l}" y1="${zY}" x2="${W - p.r}" y2="${zY}" stroke="#8b949e" stroke-width="0.5" stroke-dasharray="3,3"/>`;
   for (let i = 0; i <= 4; i++) { const v = mn + (mx - mn) * i / 4; const y = sy(v); yL += `<text x="${p.l - 5}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="8">${v.toFixed(5)}</text>`; }
+  const xL = xAxisDateLabels(t0, t1, sx, W, H, p);
   const col = vals[vals.length - 1] >= 0 ? '#00c853' : '#ff1744';
   const line = `M${pts.join('L')}`;
   const area = `${line}L${sx(t1).toFixed(1)},${zY}L${sx(t0).toFixed(1)},${zY}Z`;
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:180px"><defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${col}" stop-opacity="0.2"/><stop offset="100%" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${yL}<path d="${area}" fill="url(#pg)"/><path d="${line}" fill="none" stroke="${col}" stroke-width="1.5"/></svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:180px"><defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${col}" stop-opacity="0.2"/><stop offset="100%" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${yL}${xL}<path d="${area}" fill="url(#pg)"/><path d="${line}" fill="none" stroke="${col}" stroke-width="1.5"/></svg>`;
 }
 
 function genWeeklyChart(weekly) {
@@ -779,7 +905,17 @@ function genWeeklyChart(weekly) {
     const y = zY - (v / mx) * (ch / 2);
     yL += `<text x="${p.l - 5}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="8">${v.toFixed(5)}</text>`;
   }
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:160px">${yL}${bars}</svg>`;
+  let xL = '';
+  const step = Math.max(1, Math.floor(weekly.length / 6));
+  const indices = new Set([0]);
+  for (let i = step; i < weekly.length - 1; i += step) indices.add(i);
+  indices.add(weekly.length - 1);
+  for (const i of indices) {
+    const x = p.l + (i + 0.5) * (cw / weekly.length);
+    const label = new Date(weekly[i].time).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
+    xL += `<text x="${x}" y="${H - 5}" text-anchor="middle" fill="#8b949e" font-size="8">${label}</text>`;
+  }
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:160px">${yL}${xL}${bars}</svg>`;
 }
 
 function genMonthlyChart(monthly) {
