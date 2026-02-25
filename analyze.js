@@ -20,6 +20,8 @@ const sign = qs => crypto.createHmac('sha256', API_SECRET).update(qs).digest('he
 const FAPI_TIMEOUT_MS = 30000;
 const REQUEST_RETRIES = 3;
 
+const RATE_LIMIT_BACKOFF_MS = 65000;
+
 async function withRetry(fn, maxAttempts = REQUEST_RETRIES) {
   let lastErr;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -27,7 +29,10 @@ async function withRetry(fn, maxAttempts = REQUEST_RETRIES) {
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (attempt < maxAttempts) await sleep(1000 * Math.pow(2, attempt - 1));
+      if (attempt < maxAttempts) {
+        const isRateLimit = /too many requests|rate limit|429/i.test(String(err && err.message));
+        await sleep(isRateLimit ? RATE_LIMIT_BACKOFF_MS : 1000 * Math.pow(2, attempt - 1));
+      }
     }
   }
   throw lastErr;
@@ -149,14 +154,15 @@ async function getTransferHistory(type) {
 async function getFuturesIncome() {
   const all = [];
   let startTime = START_TIME;
+  const incomeRetries = 15;
   while (true) {
-    const batch = await withRetry(() => fapiRequest('/fapi/v1/income', { startTime, limit: 1000 }));
+    const batch = await withRetry(() => fapiRequest('/fapi/v1/income', { startTime, limit: 1000 }), incomeRetries);
     if (!Array.isArray(batch) || !batch.length) break;
     all.push(...batch);
     const lastTime = parseInt(batch[batch.length - 1].time);
     if (lastTime >= NOW || batch.length < 1000) break;
     startTime = lastTime + 1;
-    await sleep(300);
+    await sleep(800);
   }
   return all;
 }

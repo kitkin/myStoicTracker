@@ -1,0 +1,11 @@
+---
+description: Run all CLI commands yourself; never ask the user to run commands.
+globs: 
+alwaysApply: true
+---
+
+# Run CLI commands yourself
+
+- **Always run all CLI commands yourself.** Use the terminal/shell to execute npm, node, git, build, test, and any other CLI invocations.
+- **Never ask the user to run commands** (e.g. "run `npm install`" or "please run `git push`"). Execute them and report the outcome.
+- If a command needs network, credentials, or long runtime, run it with an appropriate timeout or in the background as needed; then follow up (e.g. git push after commits).
