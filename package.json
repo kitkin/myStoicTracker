@@ -1,0 +1,26 @@
+{
+  "name": "mystoictracker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "analyze": "node analyze.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kitkin/myStoicTracker.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/kitkin/myStoicTracker/issues"
+  },
+  "homepage": "https://github.com/kitkin/myStoicTracker#readme",
+  "dependencies": {
+    "@binance/connector": "^3.6.1",
+    "dotenv": "^17.3.1"
+  }
+}
