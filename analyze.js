@@ -7,16 +7,15 @@ const path = require('path');
 
 const API_KEY = process.env.BINANCE_API_KEY;
 const API_SECRET = process.env.BINANCE_API_SECRET;
-
 const client = new Spot(API_KEY, API_SECRET);
 
-const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
+const PERIOD_DAYS = 180;
+const PERIOD_MS = PERIOD_DAYS * 86400000;
 const NOW = Date.now();
-const START_TIME = NOW - THREE_MONTHS_MS;
+const START_TIME = NOW - PERIOD_MS;
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-function sign(qs) { return crypto.createHmac('sha256', API_SECRET).update(qs).digest('hex'); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sign = qs => crypto.createHmac('sha256', API_SECRET).update(qs).digest('hex');
 
 function fapiRequest(endpoint, params = {}) {
   return new Promise((resolve, reject) => {
@@ -24,8 +23,10 @@ function fapiRequest(endpoint, params = {}) {
     params.recvWindow = 10000;
     const qs = Object.entries(params).map(([k, v]) => `${k}=${v}`).join('&');
     const url = `${endpoint}?${qs}&signature=${sign(qs)}`;
-    const opts = { hostname: 'fapi.binance.com', path: url, method: 'GET', headers: { 'X-MBX-APIKEY': API_KEY } };
-    const req = https.request(opts, res => {
+    const req = https.request({
+      hostname: 'fapi.binance.com', path: url, method: 'GET',
+      headers: { 'X-MBX-APIKEY': API_KEY }
+    }, res => {
       let d = '';
       res.on('data', c => d += c);
       res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve(d); } });
@@ -46,71 +47,61 @@ function toBtc(asset, amount, priceMap) {
   if (amount === 0) return 0;
   if (asset === 'BTC') return amount;
   const stables = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'DAI'];
-  if (stables.includes(asset)) {
-    return priceMap['BTCUSDT'] ? amount / priceMap['BTCUSDT'] : 0;
-  }
+  if (stables.includes(asset)) return priceMap['BTCUSDT'] ? amount / priceMap['BTCUSDT'] : 0;
   if (priceMap[`${asset}BTC`]) return amount * priceMap[`${asset}BTC`];
-  if (priceMap[`${asset}USDT`] && priceMap['BTCUSDT']) {
-    return (amount * priceMap[`${asset}USDT`]) / priceMap['BTCUSDT'];
-  }
+  if (priceMap[`${asset}USDT`] && priceMap['BTCUSDT']) return (amount * priceMap[`${asset}USDT`]) / priceMap['BTCUSDT'];
   return 0;
 }
 
-async function getHistoricalBtcPrice(ts) {
-  try {
-    const { data } = await client.klines('BTCUSDT', '1h', {
-      startTime: ts - 3600000, endTime: ts + 3600000, limit: 1
-    });
-    if (data && data.length > 0) return parseFloat(data[0][4]);
-  } catch { /* fallback */ }
-  return null;
+function btcPriceAt(ts, dailyPrices) {
+  if (!dailyPrices.length) return null;
+  let best = dailyPrices[0], minD = Math.abs(ts - best.time);
+  for (const p of dailyPrices) { const d = Math.abs(ts - p.time); if (d < minD) { minD = d; best = p; } }
+  return best.close;
+}
+
+async function getDailyBtcPrices() {
+  const prices = [];
+  let s = START_TIME;
+  while (s < NOW) {
+    try {
+      const { data } = await client.klines('BTCUSDT', '1d', { startTime: s, endTime: Math.min(s + 100 * 86400000, NOW), limit: 100 });
+      if (data) for (const k of data) prices.push({ time: k[0], open: parseFloat(k[1]), close: parseFloat(k[4]) });
+    } catch {}
+    s += 100 * 86400000;
+    await sleep(200);
+  }
+  return prices;
 }
 
 async function getDeposits() {
-  try {
-    const { data } = await client.depositHistory({
-      startTime: START_TIME, endTime: NOW, limit: 1000, status: 1
-    });
-    return data || [];
-  } catch (e) { console.error('Deposit error:', e.message); return []; }
+  const all = [];
+  let s = START_TIME;
+  while (s < NOW) {
+    const e = Math.min(s + 89 * 86400000, NOW);
+    try {
+      const { data } = await client.depositHistory({ startTime: s, endTime: e, limit: 1000, status: 1 });
+      if (data?.length) all.push(...data);
+    } catch (err) { console.error('Deposit err:', err.message); }
+    s = e;
+    await sleep(200);
+  }
+  return all;
 }
 
 async function getWithdrawals() {
-  try {
-    const { data } = await client.withdrawHistory({
-      startTime: START_TIME, endTime: NOW, limit: 1000, status: 6
-    });
-    return data || [];
-  } catch (e) { console.error('Withdrawal error:', e.message); return []; }
-}
-
-async function getSpotTrades(priceMap) {
-  const balances = await getAccountBalances();
-  const quoteAssets = ['BTC', 'USDT', 'USDC', 'FDUSD', 'BNB'];
-  const symbols = new Set();
-  const assets = new Set(balances.map(b => b.asset));
-  assets.add('BTC');
-  for (const a of assets) {
-    for (const q of quoteAssets) {
-      if (a !== q && priceMap[`${a}${q}`] !== undefined) symbols.add(`${a}${q}`);
-    }
-  }
-  const allTrades = [];
-  for (const sym of symbols) {
+  const all = [];
+  let s = START_TIME;
+  while (s < NOW) {
+    const e = Math.min(s + 89 * 86400000, NOW);
     try {
-      const { data } = await client.myTrades(sym, { startTime: START_TIME, endTime: NOW, limit: 1000 });
-      if (data && data.length > 0) allTrades.push(...data);
-    } catch { /* skip invalid symbols */ }
-    await sleep(100);
+      const { data } = await client.withdrawHistory({ startTime: s, endTime: e, limit: 1000, status: 6 });
+      if (data?.length) all.push(...data);
+    } catch (err) { console.error('Withdrawal err:', err.message); }
+    s = e;
+    await sleep(200);
   }
-  return allTrades;
-}
-
-async function getAccountBalances() {
-  const { data } = await client.account();
-  return data.balances
-    .filter(b => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0)
-    .map(b => ({ asset: b.asset, free: parseFloat(b.free), locked: parseFloat(b.locked), total: parseFloat(b.free) + parseFloat(b.locked) }));
+  return all;
 }
 
 async function getTransferHistory(type) {
@@ -118,10 +109,8 @@ async function getTransferHistory(type) {
   let current = 1;
   while (true) {
     try {
-      const { data } = await client.signRequest('GET', '/sapi/v1/asset/transfer', {
-        type, size: 100, current, startTime: START_TIME
-      });
-      if (!data.rows || data.rows.length === 0) break;
+      const { data } = await client.signRequest('GET', '/sapi/v1/asset/transfer', { type, size: 100, current, startTime: START_TIME });
+      if (!data.rows?.length) break;
       all.push(...data.rows);
       if (all.length >= (data.total || 0)) break;
       current++;
@@ -131,20 +120,12 @@ async function getTransferHistory(type) {
   return all;
 }
 
-async function getFuturesAccount() {
-  return await fapiRequest('/fapi/v2/account');
-}
-
-async function getFuturesBalance() {
-  return await fapiRequest('/fapi/v2/balance');
-}
-
 async function getFuturesIncome() {
   const all = [];
   let startTime = START_TIME;
   while (true) {
     const batch = await fapiRequest('/fapi/v1/income', { startTime, limit: 1000 });
-    if (!Array.isArray(batch) || batch.length === 0) break;
+    if (!Array.isArray(batch) || !batch.length) break;
     all.push(...batch);
     const lastTime = parseInt(batch[batch.length - 1].time);
     if (lastTime >= NOW || batch.length < 1000) break;
@@ -154,518 +135,553 @@ async function getFuturesIncome() {
   return all;
 }
 
-async function getFuturesTradeHistory() {
-  const acc = await getFuturesAccount();
-  if (!acc.positions) return [];
-  const activeSymbols = acc.positions
-    .filter(p => parseFloat(p.positionAmt) !== 0)
-    .map(p => p.symbol);
-  return activeSymbols;
+function buildWeeklyPnl(income, dailyPrices, btcPrice) {
+  const weekMs = 7 * 86400000;
+  const weeks = {};
+  for (const inc of income) {
+    if (inc.incomeType !== 'REALIZED_PNL' && inc.incomeType !== 'FUNDING_FEE' && inc.incomeType !== 'COMMISSION') continue;
+    const t = parseInt(inc.time);
+    const weekStart = START_TIME + Math.floor((t - START_TIME) / weekMs) * weekMs;
+    if (!weeks[weekStart]) weeks[weekStart] = { time: weekStart, pnlUsdt: 0, pnlBtc: 0 };
+    const usdt = parseFloat(inc.income);
+    const bp = btcPriceAt(t, dailyPrices) || btcPrice;
+    weeks[weekStart].pnlUsdt += usdt;
+    weeks[weekStart].pnlBtc += bp ? usdt / bp : 0;
+  }
+  return Object.values(weeks).sort((a, b) => a.time - b.time);
 }
 
-async function getDailyBtcPrices() {
-  const prices = [];
-  let start = START_TIME;
-  while (start < NOW) {
-    try {
-      const { data } = await client.klines('BTCUSDT', '1d', {
-        startTime: start, endTime: Math.min(start + 100 * 86400000, NOW), limit: 100
-      });
-      if (data) {
-        for (const k of data) {
-          prices.push({ time: k[0], open: parseFloat(k[1]), close: parseFloat(k[4]) });
-        }
-      }
-    } catch { /* skip */ }
-    start += 100 * 86400000;
-    await sleep(200);
+function buildMonthlyPnl(income, dailyPrices, btcPrice) {
+  const months = {};
+  for (const inc of income) {
+    if (inc.incomeType !== 'REALIZED_PNL' && inc.incomeType !== 'FUNDING_FEE' && inc.incomeType !== 'COMMISSION') continue;
+    const t = parseInt(inc.time);
+    const d = new Date(t);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    if (!months[key]) months[key] = { key, time: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), pnlUsdt: 0, pnlBtc: 0 };
+    const usdt = parseFloat(inc.income);
+    const bp = btcPriceAt(t, dailyPrices) || btcPrice;
+    months[key].pnlUsdt += usdt;
+    months[key].pnlBtc += bp ? usdt / bp : 0;
   }
-  return prices;
+  return Object.values(months).sort((a, b) => a.time - b.time);
 }
 
-function btcPriceAtTime(ts, dailyPrices) {
-  if (!dailyPrices.length) return null;
-  let closest = dailyPrices[0];
-  let minDiff = Math.abs(ts - closest.time);
-  for (const p of dailyPrices) {
-    const diff = Math.abs(ts - p.time);
-    if (diff < minDiff) { minDiff = diff; closest = p; }
+function buildIncomeTimeline(income, dailyPrices, btcPrice) {
+  const sorted = [...income]
+    .filter(i => i.incomeType === 'REALIZED_PNL' || i.incomeType === 'FUNDING_FEE' || i.incomeType === 'COMMISSION')
+    .sort((a, b) => parseInt(a.time) - parseInt(b.time));
+  if (!sorted.length) return [];
+  let cumBtc = 0;
+  const dayBuckets = {};
+  for (const inc of sorted) {
+    const t = parseInt(inc.time);
+    const dayKey = Math.floor(t / 86400000) * 86400000;
+    const usdt = parseFloat(inc.income);
+    const bp = btcPriceAt(t, dailyPrices) || btcPrice;
+    const btcVal = bp ? usdt / bp : 0;
+    if (!dayBuckets[dayKey]) dayBuckets[dayKey] = { time: dayKey, dailyBtc: 0, cumulativeBtc: 0 };
+    dayBuckets[dayKey].dailyBtc += btcVal;
   }
-  return closest.close;
+  const days = Object.values(dayBuckets).sort((a, b) => a.time - b.time);
+  for (const day of days) { cumBtc += day.dailyBtc; day.cumulativeBtc = cumBtc; }
+  return days;
+}
+
+function linearRegression(points) {
+  const n = points.length;
+  if (n < 2) return { slope: 0, intercept: 0, r2: 0 };
+  let sx = 0, sy = 0, sxx = 0, sxy = 0;
+  for (let i = 0; i < n; i++) {
+    sx += i; sy += points[i]; sxx += i * i; sxy += i * points[i];
+  }
+  const slope = (n * sxy - sx * sy) / (n * sxx - sx * sx || 1);
+  const intercept = (sy - slope * sx) / n;
+  let ssRes = 0, ssTot = 0;
+  const mean = sy / n;
+  for (let i = 0; i < n; i++) {
+    const pred = intercept + slope * i;
+    ssRes += (points[i] - pred) ** 2;
+    ssTot += (points[i] - mean) ** 2;
+  }
+  return { slope, intercept, r2: ssTot > 0 ? 1 - ssRes / ssTot : 0 };
+}
+
+function computeForecastData(monthlyPnl, totalBalanceBtc, netExternalFlowBtc) {
+  const pnlValues = monthlyPnl.map(m => m.pnlBtc);
+  const avgMonthlyPnlBtc = pnlValues.reduce((a, b) => a + b, 0) / (pnlValues.length || 1);
+  const variance = pnlValues.reduce((s, v) => s + (v - avgMonthlyPnlBtc) ** 2, 0) / (pnlValues.length || 1);
+  const stdDev = Math.sqrt(variance);
+
+  const avgMonthlyRoi = netExternalFlowBtc > 0 ? avgMonthlyPnlBtc / netExternalFlowBtc : 0;
+  const monthlyRoiStdDev = netExternalFlowBtc > 0 ? stdDev / netExternalFlowBtc : 0;
+
+  const reg = linearRegression(pnlValues);
+  const trendDirection = reg.slope > 0 ? 'improving' : reg.slope < 0 ? 'declining' : 'flat';
+
+  return {
+    avgMonthlyPnlBtc,
+    stdDev,
+    avgMonthlyRoi,
+    monthlyRoiStdDev,
+    trend: reg,
+    trendDirection,
+    currentBtc: totalBalanceBtc,
+    monthlyData: pnlValues
+  };
 }
 
 function generateHTML(data) {
   const {
     deposits, withdrawals, depositDetails, withdrawalDetails,
-    spotTrades, futuresAccount, futuresIncome, incomeByType,
-    priceMap, dailyPrices,
+    spotTrades, futuresIncome, incomeByType, priceMap, dailyPrices,
     transfersToFutures, transfersFromFutures,
     totalBalanceBtc, totalDepositsBtc, totalWithdrawalsBtc,
     netExternalFlowBtc, robotPnlBtc, roiBtc,
     totalFuturesValueBtc, futuresPositions,
-    dailyPortfolioValues, incomeTimeline
+    incomeTimeline, weeklyPnl, monthlyPnl, forecast
   } = data;
 
-  const fmt = (v) => v === 0 || isNaN(v) ? '0.00000000' : v.toFixed(8);
-  const fmtShort = (v) => v === 0 || isNaN(v) ? '0.0000' : v.toFixed(4);
-  const fmtPct = (v) => isNaN(v) || !isFinite(v) ? 'N/A' : (v * 100).toFixed(2) + '%';
-  const fmtDate = (ts) => new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const fmtUsdt = (v) => v.toFixed(2);
-
+  const fmt = v => (v === 0 || isNaN(v)) ? '0.00000000' : v.toFixed(8);
+  const fmtS = v => (v === 0 || isNaN(v)) ? '0.0000' : v.toFixed(4);
+  const fmtPct = v => isNaN(v) || !isFinite(v) ? 'N/A' : (v * 100).toFixed(2) + '%';
+  const fmtDate = ts => new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const fmtU = v => v.toFixed(2);
+  const btcPrice = priceMap['BTCUSDT'] || 0;
   const roiColor = robotPnlBtc >= 0 ? '#00c853' : '#ff1744';
   const pnlSign = robotPnlBtc >= 0 ? '+' : '';
-  const btcPrice = priceMap['BTCUSDT'] || 0;
 
-  const topPositions = futuresPositions
-    .sort((a, b) => Math.abs(b.pnlUsdt) - Math.abs(a.pnlUsdt))
-    .slice(0, 30);
-
+  const topPositions = [...futuresPositions].sort((a, b) => Math.abs(b.pnlUsdt) - Math.abs(a.pnlUsdt)).slice(0, 30);
   const profitableCount = futuresPositions.filter(p => p.pnlUsdt > 0).length;
   const losingCount = futuresPositions.filter(p => p.pnlUsdt < 0).length;
   const totalUnrealizedUsdt = futuresPositions.reduce((s, p) => s + p.pnlUsdt, 0);
   const totalUnrealizedBtc = btcPrice ? totalUnrealizedUsdt / btcPrice : 0;
 
-  const svgChart = generatePortfolioChart(dailyPortfolioValues, depositDetails, dailyPrices);
-  const pnlChart = generatePnLChart(incomeTimeline, dailyPrices);
+  const pnlChart = genPnlChart(incomeTimeline);
+  const weeklyChart = genWeeklyChart(weeklyPnl);
+  const monthlyChart = genMonthlyChart(monthlyPnl);
+  const trendChart = genTrendChart(monthlyPnl, forecast);
+
+  const toBtcI = (usdt) => { if (!btcPrice || usdt === 0) return '0.00000000'; const v = usdt / btcPrice; return (v >= 0 ? '+' : '') + v.toFixed(8); };
 
   return `<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<html lang="ru"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>myStoicTracker — Trading Report</title>
 <style>
-:root { --bg:#0d1117; --card:#161b22; --border:#30363d; --text:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --green:#00c853; --red:#ff1744; --gold:#ffd740; }
+:root{--bg:#0d1117;--card:#161b22;--border:#30363d;--text:#c9d1d9;--muted:#8b949e;--accent:#58a6ff;--green:#00c853;--red:#ff1744;--gold:#ffd740;--orange:#ff9100}
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:24px}
-.container{max-width:1280px;margin:0 auto}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:20px}
+.container{max-width:1320px;margin:0 auto}
 h1{font-size:32px;margin-bottom:4px;background:linear-gradient(135deg,var(--gold),var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.subtitle{color:var(--muted);margin-bottom:32px;font-size:14px}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:28px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
-.card-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
-.card-value{font-size:22px;font-weight:700;font-family:'SF Mono','Fira Code',monospace}
-.card-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.subtitle{color:var(--muted);margin-bottom:28px;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:24px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 18px}
+.card-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}
+.card-value{font-size:20px;font-weight:700;font-family:'SF Mono','Fira Code',monospace}
+.card-sub{font-size:10px;color:var(--muted);margin-top:3px}
 .highlight{color:${roiColor}}
-.section-title{font-size:18px;margin:28px 0 14px;padding-bottom:6px;border-bottom:1px solid var(--border)}
-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;margin-bottom:20px}
-th{background:#1c2128;padding:10px 14px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
-td{padding:8px 14px;border-top:1px solid var(--border);font-size:12px;font-family:'SF Mono','Fira Code',monospace}
+.section-title{font-size:17px;margin:24px 0 12px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;margin-bottom:16px}
+th{background:#1c2128;padding:8px 12px;text-align:left;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+td{padding:7px 12px;border-top:1px solid var(--border);font-size:11px;font-family:'SF Mono','Fira Code',monospace}
 tr:hover{background:#1c2128}
-.positive{color:var(--green)} .negative{color:var(--red)}
-.chart-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
-.chart-box h3{font-size:14px;margin-bottom:12px;color:var(--muted)}
+.positive{color:var(--green)}.negative{color:var(--red)}
+.chart-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:16px}
+.chart-box h3{font-size:13px;margin-bottom:10px;color:var(--muted)}
 svg text{font-family:-apple-system,sans-serif}
-.footer{text-align:center;color:var(--muted);font-size:11px;margin-top:48px;padding-top:20px;border-top:1px solid var(--border)}
-.stat-row{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:20px}
-.stat-item{display:flex;align-items:baseline;gap:6px}
-.stat-label{font-size:12px;color:var(--muted)}
-.stat-val{font-size:14px;font-weight:600;font-family:'SF Mono',monospace}
-</style>
-</head>
-<body>
+.footer{text-align:center;color:var(--muted);font-size:10px;margin-top:40px;padding-top:16px;border-top:1px solid var(--border)}
+.stat-row{display:flex;gap:20px;flex-wrap:wrap;margin-bottom:16px}
+.stat-item{display:flex;align-items:baseline;gap:5px}
+.stat-label{font-size:11px;color:var(--muted)}.stat-val{font-size:13px;font-weight:600;font-family:'SF Mono',monospace}
+.calc-section{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:24px}
+.calc-section h2{font-size:18px;margin-bottom:16px;background:linear-gradient(135deg,var(--gold),var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.calc-inputs{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+.calc-input{display:flex;flex-direction:column;gap:4px}
+.calc-input label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.calc-input input{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:16px;font-family:'SF Mono',monospace;width:200px;outline:none;transition:border .2s}
+.calc-input input:focus{border-color:var(--accent)}
+.scenarios{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.scenario{border-radius:12px;padding:18px;border:1px solid var(--border)}
+.scenario.optimistic{background:linear-gradient(135deg,rgba(0,200,83,0.08),rgba(0,200,83,0.02));border-color:rgba(0,200,83,0.3)}
+.scenario.average{background:linear-gradient(135deg,rgba(88,166,255,0.08),rgba(88,166,255,0.02));border-color:rgba(88,166,255,0.3)}
+.scenario.pessimistic{background:linear-gradient(135deg,rgba(255,23,68,0.08),rgba(255,23,68,0.02));border-color:rgba(255,23,68,0.3)}
+.scenario h4{font-size:12px;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px}
+.scenario.optimistic h4{color:var(--green)}.scenario.average h4{color:var(--accent)}.scenario.pessimistic h4{color:var(--red)}
+.sc-row{display:flex;justify-content:space-between;margin-bottom:6px;font-size:12px}
+.sc-label{color:var(--muted)}.sc-val{font-family:'SF Mono',monospace;font-weight:600}
+.sc-big{font-size:22px;font-weight:700;font-family:'SF Mono',monospace;margin:10px 0 4px}
+.trend-badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:11px;font-weight:600;margin-left:8px}
+.trend-up{background:rgba(0,200,83,0.15);color:var(--green)}
+.trend-down{background:rgba(255,23,68,0.15);color:var(--red)}
+.trend-flat{background:rgba(139,148,158,0.15);color:var(--muted)}
+@media(max-width:900px){.scenarios{grid-template-columns:1fr}.calc-inputs{flex-direction:column}}
+</style></head><body>
 <div class="container">
 <h1>myStoicTracker</h1>
-<p class="subtitle">Binance Futures Trading Bot Performance &mdash; ${fmtDate(START_TIME)} &ndash; ${fmtDate(NOW)} &mdash; BTC/USDT: ${fmtUsdt(btcPrice)}</p>
+<p class="subtitle">Binance Futures Bot Performance &mdash; ${fmtDate(START_TIME)} &ndash; ${fmtDate(NOW)} (${PERIOD_DAYS} days) &mdash; BTC/USDT: $${fmtU(btcPrice)}</p>
 
 <div class="grid">
-  <div class="card">
-    <div class="card-label">Total Portfolio</div>
-    <div class="card-value">${fmt(totalFuturesValueBtc)} BTC</div>
-    <div class="card-sub">${fmtUsdt(totalFuturesValueBtc * btcPrice)} USDT</div>
-  </div>
-  <div class="card">
-    <div class="card-label">External Deposits</div>
-    <div class="card-value positive">+${fmt(totalDepositsBtc)} BTC</div>
-    <div class="card-sub">${deposits.length} deposits</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Robot P&L (net)</div>
-    <div class="card-value highlight">${pnlSign}${fmt(robotPnlBtc)} BTC</div>
-    <div class="card-sub">${pnlSign}${fmtUsdt(robotPnlBtc * btcPrice)} USDT</div>
-  </div>
-  <div class="card">
-    <div class="card-label">ROI in BTC</div>
-    <div class="card-value highlight">${fmtPct(roiBtc)}</div>
-    <div class="card-sub">over 3 months</div>
-  </div>
+  <div class="card"><div class="card-label">Total Portfolio</div><div class="card-value">${fmt(totalFuturesValueBtc)} BTC</div><div class="card-sub">$${fmtU(totalFuturesValueBtc * btcPrice)}</div></div>
+  <div class="card"><div class="card-label">External Deposits</div><div class="card-value positive">+${fmt(totalDepositsBtc)} BTC</div><div class="card-sub">${deposits.length} deposits</div></div>
+  <div class="card"><div class="card-label">Robot P&L (net)</div><div class="card-value highlight">${pnlSign}${fmt(robotPnlBtc)} BTC</div><div class="card-sub">${pnlSign}$${fmtU(robotPnlBtc * btcPrice)}</div></div>
+  <div class="card"><div class="card-label">ROI in BTC</div><div class="card-value highlight">${fmtPct(roiBtc)}</div><div class="card-sub">over ${PERIOD_DAYS} days</div></div>
+  <div class="card"><div class="card-label">Monthly ROI (avg)</div><div class="card-value highlight">${fmtPct(forecast.avgMonthlyRoi)}</div><div class="card-sub">trend: ${forecast.trendDirection}<span class="trend-badge trend-${forecast.trendDirection === 'improving' ? 'up' : forecast.trendDirection === 'declining' ? 'down' : 'flat'}">${forecast.trendDirection === 'improving' ? '↑' : forecast.trendDirection === 'declining' ? '↓' : '→'}</span></div></div>
 </div>
 
 <div class="grid">
-  <div class="card">
-    <div class="card-label">Unrealized PNL</div>
-    <div class="card-value ${totalUnrealizedBtc >= 0 ? 'positive' : 'negative'}">${totalUnrealizedBtc >= 0 ? '+' : ''}${fmt(totalUnrealizedBtc)} BTC</div>
-    <div class="card-sub">${fmtUsdt(totalUnrealizedUsdt)} USDT &mdash; ${futuresPositions.length} open positions</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Realized PNL</div>
-    <div class="card-value ${(incomeByType['REALIZED_PNL'] || 0) >= 0 ? 'positive' : 'negative'}">${toBtcIncome(incomeByType['REALIZED_PNL'] || 0, btcPrice)} BTC</div>
-    <div class="card-sub">${fmtUsdt(incomeByType['REALIZED_PNL'] || 0)} USDT</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Funding Fees</div>
-    <div class="card-value">${toBtcIncome(incomeByType['FUNDING_FEE'] || 0, btcPrice)} BTC</div>
-    <div class="card-sub">${fmtUsdt(incomeByType['FUNDING_FEE'] || 0)} USDT</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Commissions</div>
-    <div class="card-value negative">${toBtcIncome(incomeByType['COMMISSION'] || 0, btcPrice)} BTC</div>
-    <div class="card-sub">${fmtUsdt(incomeByType['COMMISSION'] || 0)} USDT</div>
-  </div>
+  <div class="card"><div class="card-label">Unrealized PNL</div><div class="card-value ${totalUnrealizedBtc >= 0 ? 'positive' : 'negative'}">${totalUnrealizedBtc >= 0 ? '+' : ''}${fmt(totalUnrealizedBtc)} BTC</div><div class="card-sub">${fmtU(totalUnrealizedUsdt)} USDT &mdash; ${futuresPositions.length} open</div></div>
+  <div class="card"><div class="card-label">Realized PNL</div><div class="card-value ${(incomeByType['REALIZED_PNL'] || 0) >= 0 ? 'positive' : 'negative'}">${toBtcI(incomeByType['REALIZED_PNL'] || 0)} BTC</div><div class="card-sub">${fmtU(incomeByType['REALIZED_PNL'] || 0)} USDT</div></div>
+  <div class="card"><div class="card-label">Funding Fees</div><div class="card-value">${toBtcI(incomeByType['FUNDING_FEE'] || 0)} BTC</div><div class="card-sub">${fmtU(incomeByType['FUNDING_FEE'] || 0)} USDT</div></div>
+  <div class="card"><div class="card-label">Commissions</div><div class="card-value negative">${toBtcI(incomeByType['COMMISSION'] || 0)} BTC</div><div class="card-sub">${fmtU(incomeByType['COMMISSION'] || 0)} USDT</div></div>
 </div>
 
 <div class="stat-row">
-  <div class="stat-item"><span class="stat-label">Profitable:</span> <span class="stat-val positive">${profitableCount}</span></div>
-  <div class="stat-item"><span class="stat-label">Losing:</span> <span class="stat-val negative">${losingCount}</span></div>
-  <div class="stat-item"><span class="stat-label">Win rate:</span> <span class="stat-val">${fmtPct(profitableCount / (profitableCount + losingCount || 1))}</span></div>
-  <div class="stat-item"><span class="stat-label">Leverage:</span> <span class="stat-val">9x</span></div>
-  <div class="stat-item"><span class="stat-label">Income records:</span> <span class="stat-val">${futuresIncome.length}</span></div>
+  <div class="stat-item"><span class="stat-label">Profitable positions:</span><span class="stat-val positive">${profitableCount}</span></div>
+  <div class="stat-item"><span class="stat-label">Losing:</span><span class="stat-val negative">${losingCount}</span></div>
+  <div class="stat-item"><span class="stat-label">Win rate:</span><span class="stat-val">${fmtPct(profitableCount / (profitableCount + losingCount || 1))}</span></div>
+  <div class="stat-item"><span class="stat-label">Leverage:</span><span class="stat-val">9x</span></div>
+  <div class="stat-item"><span class="stat-label">Income records:</span><span class="stat-val">${futuresIncome.length.toLocaleString()}</span></div>
 </div>
 
-${svgChart ? `<div class="chart-box"><h3>Portfolio Value (BTC) over time</h3>${svgChart}</div>` : ''}
-${pnlChart ? `<div class="chart-box"><h3>Cumulative Realized PNL (BTC)</h3>${pnlChart}</div>` : ''}
+${pnlChart ? `<div class="chart-box"><h3>Cumulative PNL (BTC) — Realized + Funding + Commissions</h3>${pnlChart}</div>` : ''}
+${weeklyChart ? `<div class="chart-box"><h3>Weekly PNL (BTC)</h3>${weeklyChart}</div>` : ''}
+${monthlyChart ? `<div class="chart-box"><h3>Monthly PNL (BTC) with Trend Line</h3>${monthlyChart}</div>` : ''}
+
+<!-- FORECAST CALCULATOR -->
+<div class="calc-section" id="calculator">
+<h2>Forecast Calculator</h2>
+<p style="color:var(--muted);font-size:12px;margin-bottom:16px">Based on ${monthlyPnl.length} months of data. Avg monthly PNL: ${forecast.avgMonthlyPnlBtc.toFixed(8)} BTC, σ: ${forecast.stdDev.toFixed(8)} BTC</p>
+<div class="calc-inputs">
+  <div class="calc-input"><label>Forecast Period (months)</label><input type="number" id="fcMonths" value="12" min="1" max="120"></div>
+  <div class="calc-input"><label>Expected BTC Price (USD)</label><input type="number" id="fcBtcPrice" value="120000" min="1000" max="10000000" step="1000"></div>
+</div>
+<div class="scenarios" id="scenarios"></div>
+</div>
+
+<script>
+const FC = {
+  currentBtc: ${totalBalanceBtc.toFixed(10)},
+  avgMonthlyPnl: ${forecast.avgMonthlyPnlBtc.toFixed(10)},
+  stdDev: ${forecast.stdDev.toFixed(10)},
+  avgMonthlyRoi: ${forecast.avgMonthlyRoi.toFixed(10)},
+  trendSlope: ${forecast.trend.slope.toFixed(12)},
+  monthlyData: [${forecast.monthlyData.map(v => v.toFixed(10)).join(',')}]
+};
+function recalc() {
+  const months = Math.max(1, parseInt(document.getElementById('fcMonths').value) || 12);
+  const btcP = Math.max(1, parseFloat(document.getElementById('fcBtcPrice').value) || 120000);
+  const scenarios = [
+    { name: 'Optimistic', cls: 'optimistic', pnl: FC.avgMonthlyPnl + FC.stdDev, roi: FC.avgMonthlyRoi + (FC.currentBtc > 0 ? FC.stdDev / FC.currentBtc : 0) },
+    { name: 'Average', cls: 'average', pnl: FC.avgMonthlyPnl, roi: FC.avgMonthlyRoi },
+    { name: 'Pessimistic', cls: 'pessimistic', pnl: FC.avgMonthlyPnl - FC.stdDev, roi: FC.avgMonthlyRoi - (FC.currentBtc > 0 ? FC.stdDev / FC.currentBtc : 0) }
+  ];
+  let html = '';
+  for (const sc of scenarios) {
+    let btc = FC.currentBtc;
+    for (let m = 0; m < months; m++) btc += sc.pnl;
+    const totalRoi = FC.currentBtc > 0 ? (btc - FC.currentBtc) / FC.currentBtc : 0;
+    const annualRoi = months >= 1 ? (Math.pow(1 + totalRoi, 12 / months) - 1) : totalRoi;
+    const usd = btc * btcP;
+    const pnlBtc = btc - FC.currentBtc;
+    const pnlUsd = pnlBtc * btcP;
+    const c = sc.cls;
+    const color = c === 'optimistic' ? '#00c853' : c === 'average' ? '#58a6ff' : '#ff1744';
+    html += '<div class="scenario ' + c + '">' +
+      '<h4>' + sc.name + '</h4>' +
+      '<div class="sc-row"><span class="sc-label">Monthly PNL</span><span class="sc-val" style="color:' + color + '">' + (sc.pnl >= 0 ? '+' : '') + sc.pnl.toFixed(6) + ' BTC</span></div>' +
+      '<div class="sc-row"><span class="sc-label">Monthly ROI</span><span class="sc-val">' + (sc.roi * 100).toFixed(2) + '%</span></div>' +
+      '<div class="sc-row"><span class="sc-label">Total ROI (' + months + 'mo)</span><span class="sc-val" style="color:' + color + '">' + (totalRoi * 100).toFixed(2) + '%</span></div>' +
+      '<div class="sc-row"><span class="sc-label">Annualized ROI</span><span class="sc-val">' + (annualRoi * 100).toFixed(2) + '%</span></div>' +
+      '<div style="border-top:1px solid var(--border);margin:10px 0;padding-top:10px">' +
+      '<div class="sc-row"><span class="sc-label">P&L</span><span class="sc-val" style="color:' + color + '">' + (pnlBtc >= 0 ? '+' : '') + pnlBtc.toFixed(6) + ' BTC</span></div>' +
+      '<div class="sc-big" style="color:' + color + '">' + btc.toFixed(6) + ' BTC</div>' +
+      '<div class="sc-row"><span class="sc-label">USD Value</span><span class="sc-val" style="color:' + color + '">$' + usd.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span></div>' +
+      '<div class="sc-row"><span class="sc-label">P&L USD</span><span class="sc-val" style="color:' + color + '">' + (pnlUsd >= 0 ? '+$' : '-$') + Math.abs(pnlUsd).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span></div>' +
+      '</div></div>';
+  }
+  document.getElementById('scenarios').innerHTML = html;
+}
+document.getElementById('fcMonths').addEventListener('input', recalc);
+document.getElementById('fcBtcPrice').addEventListener('input', recalc);
+recalc();
+</script>
+
+${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast</h3>${trendChart}</div>` : ''}
+
+<h2 class="section-title">Monthly PNL Breakdown</h2>
+<table><thead><tr><th>Month</th><th>PNL (BTC)</th><th>PNL (USDT)</th><th>Cumulative (BTC)</th></tr></thead>
+<tbody>${(() => { let cum = 0; return monthlyPnl.map(m => { cum += m.pnlBtc; const cls = m.pnlBtc >= 0 ? 'positive' : 'negative'; return '<tr><td>' + m.key + '</td><td class="' + cls + '">' + (m.pnlBtc >= 0 ? '+' : '') + m.pnlBtc.toFixed(8) + '</td><td class="' + cls + '">' + (m.pnlUsdt >= 0 ? '+' : '') + fmtU(m.pnlUsdt) + '</td><td>' + cum.toFixed(8) + '</td></tr>'; }).join(''); })()}</tbody></table>
 
 <h2 class="section-title">External Deposits</h2>
-${depositDetails.length > 0 ? `<table>
-<thead><tr><th>Date</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>BTC Price</th></tr></thead>
-<tbody>${depositDetails.map(d => `<tr>
-  <td>${fmtDate(d.insertTime)}</td><td>${d.coin}</td>
-  <td>${parseFloat(d.amount).toFixed(8)}</td><td>${fmt(d.btcValue)}</td>
-  <td>${d.btcPriceAtTime ? fmtUsdt(d.btcPriceAtTime) : '-'}</td>
-</tr>`).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
+${depositDetails.length > 0 ? `<table><thead><tr><th>Date</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>BTC Price</th></tr></thead>
+<tbody>${depositDetails.map(d => `<tr><td>${fmtDate(d.insertTime)}</td><td>${d.coin}</td><td>${parseFloat(d.amount).toFixed(8)}</td><td>${fmt(d.btcValue)}</td><td>${d.btcPriceAtTime ? '$' + fmtU(d.btcPriceAtTime) : '-'}</td></tr>`).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
 
 <h2 class="section-title">Internal Transfers (Spot ↔ Futures)</h2>
-<table>
-<thead><tr><th>Date</th><th>Direction</th><th>Asset</th><th>Amount</th><th>BTC Value</th></tr></thead>
-<tbody>
-${[...transfersToFutures.map(t => ({ ...t, dir: 'Spot → Futures' })),
-   ...transfersFromFutures.map(t => ({ ...t, dir: 'Futures → Spot' }))
-].sort((a, b) => b.timestamp - a.timestamp).map(t => {
-  const btcVal = toBtc(t.asset, parseFloat(t.amount), priceMap);
-  return `<tr>
-    <td>${fmtDate(t.timestamp)}</td>
-    <td>${t.dir}</td><td>${t.asset}</td>
-    <td>${parseFloat(t.amount).toFixed(8)}</td><td>${fmt(btcVal)}</td>
-  </tr>`;
-}).join('')}
-</tbody></table>
+<table><thead><tr><th>Date</th><th>Direction</th><th>Asset</th><th>Amount</th><th>BTC Value</th></tr></thead>
+<tbody>${[...transfersToFutures.map(t => ({ ...t, dir: 'Spot → Futures' })), ...transfersFromFutures.map(t => ({ ...t, dir: 'Futures → Spot' }))].sort((a, b) => b.timestamp - a.timestamp).map(t => { const bv = toBtc(t.asset, parseFloat(t.amount), priceMap); return '<tr><td>' + fmtDate(t.timestamp) + '</td><td>' + t.dir + '</td><td>' + t.asset + '</td><td>' + parseFloat(t.amount).toFixed(8) + '</td><td>' + fmt(bv) + '</td></tr>'; }).join('')}</tbody></table>
 
-<h2 class="section-title">Top Open Positions (by unrealized PNL)</h2>
-<table>
-<thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry Price</th><th>PNL (USDT)</th><th>PNL (BTC)</th></tr></thead>
-<tbody>${topPositions.map(p => {
-  const pnlBtc = btcPrice ? p.pnlUsdt / btcPrice : 0;
-  const side = p.qty > 0 ? 'LONG' : 'SHORT';
-  const sideClass = p.qty > 0 ? 'positive' : 'negative';
-  const pnlClass = p.pnlUsdt >= 0 ? 'positive' : 'negative';
-  return `<tr>
-    <td><strong>${p.symbol}</strong></td>
-    <td class="${sideClass}">${side}</td>
-    <td>${Math.abs(p.qty).toFixed(4)}</td>
-    <td>${p.entry.toFixed(6)}</td>
-    <td class="${pnlClass}">${p.pnlUsdt >= 0 ? '+' : ''}${fmtUsdt(p.pnlUsdt)}</td>
-    <td class="${pnlClass}">${pnlBtc >= 0 ? '+' : ''}${fmtShort(pnlBtc)}</td>
-  </tr>`;
-}).join('')}</tbody></table>
-
-${spotTrades.length > 0 ? `<h2 class="section-title">Spot Trades</h2>
-<table>
-<thead><tr><th>Date</th><th>Symbol</th><th>Side</th><th>Qty</th><th>Price</th><th>Quote Qty</th></tr></thead>
-<tbody>${spotTrades.sort((a, b) => b.time - a.time).slice(0, 50).map(t => `<tr>
-  <td>${fmtDate(t.time)}</td><td>${t.symbol}</td>
-  <td class="${t.isBuyer ? 'positive' : 'negative'}">${t.isBuyer ? 'BUY' : 'SELL'}</td>
-  <td>${parseFloat(t.qty).toFixed(8)}</td><td>${parseFloat(t.price).toFixed(2)}</td>
-  <td>${parseFloat(t.quoteQty).toFixed(2)}</td>
-</tr>`).join('')}</tbody></table>` : ''}
+<h2 class="section-title">Top Open Positions</h2>
+<table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>PNL (USDT)</th><th>PNL (BTC)</th></tr></thead>
+<tbody>${topPositions.map(p => { const pb = btcPrice ? p.pnlUsdt / btcPrice : 0; const sd = p.qty > 0 ? 'LONG' : 'SHORT'; const sc = p.qty > 0 ? 'positive' : 'negative'; const pc = p.pnlUsdt >= 0 ? 'positive' : 'negative'; return '<tr><td><strong>' + p.symbol + '</strong></td><td class="' + sc + '">' + sd + '</td><td>' + Math.abs(p.qty).toFixed(4) + '</td><td>' + p.entry.toFixed(6) + '</td><td class="' + pc + '">' + (p.pnlUsdt >= 0 ? '+' : '') + fmtU(p.pnlUsdt) + '</td><td class="' + pc + '">' + (pb >= 0 ? '+' : '') + fmtS(pb) + '</td></tr>'; }).join('')}</tbody></table>
 
 <h2 class="section-title">Methodology</h2>
-<div class="card" style="font-size:13px;line-height:1.8">
-<p><strong>Portfolio Value (BTC)</strong> = Futures wallet balance + Unrealized PNL, converted to BTC at current price.</p>
-<p><strong>External Deposits (BTC)</strong> = All on-chain deposits within the period, valued in BTC at time of deposit.</p>
-<p><strong>Robot P&L</strong> = Current portfolio (BTC) − External deposits (BTC). This isolates the bot's trading performance from external capital injections.</p>
-<p><strong>ROI (BTC)</strong> = Robot P&L / External deposits. Measures how efficiently the bot grew your capital denominated in BTC.</p>
-<p><em>Note: All BTC conversions use historical BTC/USDT prices where available, current prices otherwise.</em></p>
+<div class="card" style="font-size:12px;line-height:1.8">
+<p><strong>Portfolio Value (BTC)</strong> = Futures wallet balance + Unrealized PNL, converted to BTC.</p>
+<p><strong>Robot P&L</strong> = Current portfolio (BTC) − External deposits (BTC). Isolates bot performance from capital injections.</p>
+<p><strong>ROI (BTC)</strong> = Robot P&L / External deposits. Denominated in BTC, not USD.</p>
+<p><strong>Monthly PNL</strong> = Realized PNL + Funding Fees + Commissions per calendar month, each converted to BTC at historical daily price.</p>
+<p><strong>Forecast</strong> = Average monthly PNL ± 1σ projected forward. Optimistic = avg + σ, Pessimistic = avg − σ.</p>
+<p><strong>Trend</strong> = Linear regression on monthly PNL values. Positive slope = improving performance.</p>
 </div>
 
 <div class="footer">Generated by myStoicTracker &mdash; ${new Date().toLocaleString('ru-RU')} &mdash; All values in BTC &mdash; <a href="https://github.com/kitkin/myStoicTracker" style="color:var(--accent)">GitHub</a></div>
-</div>
-</body></html>`;
+</div></body></html>`;
 }
 
-function toBtcIncome(usdt, btcPrice) {
-  if (!btcPrice || usdt === 0) return '0.00000000';
-  const val = usdt / btcPrice;
-  return (val >= 0 ? '+' : '') + val.toFixed(8);
-}
-
-function generatePortfolioChart(points, depositDetails, dailyPrices) {
-  if (!points || points.length < 2) return '';
-  const W = 1220, H = 220, pad = { t: 15, r: 15, b: 25, l: 75 };
-  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
-  const vals = points.map(p => p.btcValue);
-  const minV = Math.min(...vals) * 0.998, maxV = Math.max(...vals) * 1.002;
-  const minT = points[0].time, maxT = points[points.length - 1].time;
-  const sx = t => pad.l + ((t - minT) / (maxT - minT || 1)) * cw;
-  const sy = v => pad.t + ch - ((v - minV) / (maxV - minV || 1)) * ch;
-
-  const pts = points.map(p => `${sx(p.time).toFixed(1)},${sy(p.btcValue).toFixed(1)}`);
+function genPnlChart(timeline) {
+  if (!timeline?.length || timeline.length < 2) return '';
+  const W = 1280, H = 200, p = { t: 12, r: 12, b: 22, l: 72 };
+  const cw = W - p.l - p.r, ch = H - p.t - p.b;
+  const vals = timeline.map(d => d.cumulativeBtc);
+  const mn = Math.min(...vals, 0) * 1.1, mx = Math.max(...vals) * 1.1 || 0.001;
+  const t0 = timeline[0].time, t1 = timeline[timeline.length - 1].time;
+  const sx = t => p.l + ((t - t0) / (t1 - t0 || 1)) * cw;
+  const sy = v => p.t + ch - ((v - mn) / (mx - mn || 1)) * ch;
+  const pts = timeline.map(d => `${sx(d.time).toFixed(1)},${sy(d.cumulativeBtc).toFixed(1)}`);
+  const zY = sy(0);
+  let yL = `<line x1="${p.l}" y1="${zY}" x2="${W - p.r}" y2="${zY}" stroke="#8b949e" stroke-width="0.5" stroke-dasharray="3,3"/>`;
+  for (let i = 0; i <= 4; i++) { const v = mn + (mx - mn) * i / 4; const y = sy(v); yL += `<text x="${p.l - 5}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="8">${v.toFixed(5)}</text>`; }
+  const col = vals[vals.length - 1] >= 0 ? '#00c853' : '#ff1744';
   const line = `M${pts.join('L')}`;
-  const area = `${line}L${sx(maxT).toFixed(1)},${(pad.t + ch)}L${sx(minT).toFixed(1)},${(pad.t + ch)}Z`;
+  const area = `${line}L${sx(t1).toFixed(1)},${zY}L${sx(t0).toFixed(1)},${zY}Z`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:180px"><defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${col}" stop-opacity="0.2"/><stop offset="100%" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>${yL}<path d="${area}" fill="url(#pg)"/><path d="${line}" fill="none" stroke="${col}" stroke-width="1.5"/></svg>`;
+}
 
-  let yLabels = '';
-  for (let i = 0; i <= 4; i++) {
-    const v = minV + (maxV - minV) * i / 4;
-    const y = sy(v);
-    yLabels += `<line x1="${pad.l}" y1="${y}" x2="${W - pad.r}" y2="${y}" stroke="#30363d" stroke-width="0.5"/>`;
-    yLabels += `<text x="${pad.l - 6}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="9">${v.toFixed(4)}</text>`;
+function genWeeklyChart(weekly) {
+  if (!weekly?.length) return '';
+  const W = 1280, H = 180, p = { t: 10, r: 12, b: 22, l: 72 };
+  const cw = W - p.l - p.r, ch = H - p.t - p.b;
+  const vals = weekly.map(w => w.pnlBtc);
+  const mx = Math.max(...vals.map(Math.abs)) * 1.2 || 0.001;
+  const barW = Math.max(4, cw / weekly.length - 2);
+  const zY = p.t + ch / 2;
+  let bars = '';
+  weekly.forEach((w, i) => {
+    const x = p.l + (i / weekly.length) * cw;
+    const h = (Math.abs(w.pnlBtc) / mx) * (ch / 2);
+    const y = w.pnlBtc >= 0 ? zY - h : zY;
+    const col = w.pnlBtc >= 0 ? '#00c853' : '#ff1744';
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${col}" opacity="0.7" rx="1"/>`;
+  });
+  let yL = `<line x1="${p.l}" y1="${zY}" x2="${W - p.r}" y2="${zY}" stroke="#8b949e" stroke-width="0.5"/>`;
+  for (const v of [mx, mx / 2, -mx / 2, -mx]) {
+    const y = zY - (v / mx) * (ch / 2);
+    yL += `<text x="${p.l - 5}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="8">${v.toFixed(5)}</text>`;
   }
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:160px">${yL}${bars}</svg>`;
+}
 
-  let markers = '';
-  for (const d of (depositDetails || [])) {
-    const t = d.insertTime;
-    if (t >= minT && t <= maxT) {
-      const x = sx(t);
-      markers += `<line x1="${x}" y1="${pad.t}" x2="${x}" y2="${pad.t + ch}" stroke="#00c853" stroke-width="1" stroke-dasharray="4,3" opacity="0.5"/>`;
-      markers += `<circle cx="${x}" cy="${pad.t + 4}" r="3" fill="#00c853"/>`;
-      markers += `<text x="${x}" y="${pad.t + ch + 14}" text-anchor="middle" fill="#00c853" font-size="8">+${d.coin}</text>`;
+function genMonthlyChart(monthly) {
+  if (!monthly?.length) return '';
+  const W = 1280, H = 200, p = { t: 10, r: 12, b: 30, l: 72 };
+  const cw = W - p.l - p.r, ch = H - p.t - p.b;
+  const vals = monthly.map(m => m.pnlBtc);
+  const mx = Math.max(...vals.map(Math.abs)) * 1.3 || 0.001;
+  const barW = Math.min(80, Math.max(20, cw / monthly.length - 10));
+  const zY = p.t + ch / 2;
+  let bars = '', labels = '';
+  const reg = linearRegression(vals);
+  monthly.forEach((m, i) => {
+    const x = p.l + (i + 0.5) * (cw / monthly.length) - barW / 2;
+    const h = (Math.abs(m.pnlBtc) / mx) * (ch / 2);
+    const y = m.pnlBtc >= 0 ? zY - h : zY;
+    const col = m.pnlBtc >= 0 ? '#00c853' : '#ff1744';
+    bars += `<rect x="${x}" y="${y}" width="${barW}" height="${h}" fill="${col}" opacity="0.8" rx="3"/>`;
+    labels += `<text x="${x + barW / 2}" y="${H - 5}" text-anchor="middle" fill="#8b949e" font-size="8">${m.key}</text>`;
+  });
+  let trendLine = '';
+  if (monthly.length >= 2) {
+    const x0 = p.l + 0.5 * (cw / monthly.length);
+    const x1 = p.l + (monthly.length - 0.5) * (cw / monthly.length);
+    const y0 = zY - (reg.intercept / mx) * (ch / 2);
+    const y1 = zY - ((reg.intercept + reg.slope * (monthly.length - 1)) / mx) * (ch / 2);
+    trendLine = `<line x1="${x0}" y1="${y0}" x2="${x1}" y2="${y1}" stroke="#ffd740" stroke-width="2" stroke-dasharray="6,3"/>`;
+  }
+  let yL = `<line x1="${p.l}" y1="${zY}" x2="${W - p.r}" y2="${zY}" stroke="#8b949e" stroke-width="0.5"/>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:180px">${yL}${bars}${trendLine}${labels}</svg>`;
+}
+
+function genTrendChart(monthly, forecast) {
+  if (!monthly?.length || monthly.length < 2) return '';
+  const W = 1280, H = 240, p = { t: 15, r: 40, b: 30, l: 72 };
+  const cw = W - p.l - p.r, ch = H - p.t - p.b;
+  const forecastMonths = 12;
+  const totalMonths = monthly.length + forecastMonths;
+  const reg = forecast.trend;
+  const allVals = [];
+  for (let i = 0; i < totalMonths; i++) {
+    if (i < monthly.length) allVals.push(monthly[i].pnlBtc);
+    else {
+      const avg = forecast.avgMonthlyPnlBtc;
+      const opt = avg + forecast.stdDev;
+      const pes = avg - forecast.stdDev;
+      allVals.push(opt, pes, avg);
     }
   }
+  const mx = Math.max(...allVals.map(Math.abs)) * 1.3 || 0.001;
+  const zY = p.t + ch / 2;
+  const sx = i => p.l + (i / (totalMonths - 1 || 1)) * cw;
+  const sy = v => zY - (v / mx) * (ch / 2);
 
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:200px">
-    <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#58a6ff" stop-opacity="0.25"/><stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/></linearGradient></defs>
-    ${yLabels}<path d="${area}" fill="url(#ag)"/><path d="${line}" fill="none" stroke="#58a6ff" stroke-width="1.5"/>${markers}
-  </svg>`;
-}
-
-function generatePnLChart(incomeTimeline, dailyPrices) {
-  if (!incomeTimeline || incomeTimeline.length < 2) return '';
-  const W = 1220, H = 200, pad = { t: 15, r: 15, b: 25, l: 75 };
-  const cw = W - pad.l - pad.r, ch = H - pad.t - pad.b;
-  const vals = incomeTimeline.map(p => p.cumulativeBtc);
-  const minV = Math.min(...vals, 0) * 1.1, maxV = Math.max(...vals) * 1.1 || 0.001;
-  const minT = incomeTimeline[0].time, maxT = incomeTimeline[incomeTimeline.length - 1].time;
-  const sx = t => pad.l + ((t - minT) / (maxT - minT || 1)) * cw;
-  const sy = v => pad.t + ch - ((v - minV) / (maxV - minV || 1)) * ch;
-
-  const pts = incomeTimeline.map(p => `${sx(p.time).toFixed(1)},${sy(p.cumulativeBtc).toFixed(1)}`);
-  const line = `M${pts.join('L')}`;
-
-  const zeroY = sy(0);
-  let yLabels = `<line x1="${pad.l}" y1="${zeroY}" x2="${W - pad.r}" y2="${zeroY}" stroke="#8b949e" stroke-width="0.5" stroke-dasharray="3,3"/>`;
-  for (let i = 0; i <= 4; i++) {
-    const v = minV + (maxV - minV) * i / 4;
-    const y = sy(v);
-    yLabels += `<text x="${pad.l - 6}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="9">${v.toFixed(5)}</text>`;
+  let hist = '', fcOpt = '', fcAvg = '', fcPes = '';
+  const histPts = monthly.map((m, i) => `${sx(i).toFixed(1)},${sy(m.pnlBtc).toFixed(1)}`);
+  hist = `<polyline points="${histPts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+  for (let i = 0; i < monthly.length; i++) {
+    hist += `<circle cx="${sx(i)}" cy="${sy(monthly[i].pnlBtc)}" r="3" fill="var(--accent)"/>`;
   }
 
-  const lastVal = vals[vals.length - 1];
-  const strokeColor = lastVal >= 0 ? '#00c853' : '#ff1744';
+  const divX = sx(monthly.length - 1);
+  let divLine = `<line x1="${divX}" y1="${p.t}" x2="${divX}" y2="${p.t + ch}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="4,4"/>`;
+  divLine += `<text x="${divX + 4}" y="${p.t + 10}" fill="var(--muted)" font-size="9">forecast →</text>`;
 
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet" style="width:100%;height:180px">
-    ${yLabels}<path d="${line}" fill="none" stroke="${strokeColor}" stroke-width="1.5"/>
+  const optPts = [], avgPts = [], pesPts = [];
+  const lastHist = monthly[monthly.length - 1].pnlBtc;
+  for (let j = 0; j <= forecastMonths; j++) {
+    const i = monthly.length - 1 + j;
+    const avg = forecast.avgMonthlyPnlBtc;
+    optPts.push(`${sx(i).toFixed(1)},${sy(j === 0 ? lastHist : avg + forecast.stdDev).toFixed(1)}`);
+    avgPts.push(`${sx(i).toFixed(1)},${sy(j === 0 ? lastHist : avg).toFixed(1)}`);
+    pesPts.push(`${sx(i).toFixed(1)},${sy(j === 0 ? lastHist : avg - forecast.stdDev).toFixed(1)}`);
+  }
+  fcOpt = `<polyline points="${optPts.join(' ')}" fill="none" stroke="var(--green)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+  fcAvg = `<polyline points="${avgPts.join(' ')}" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+  fcPes = `<polyline points="${pesPts.join(' ')}" fill="none" stroke="var(--red)" stroke-width="1.5" stroke-dasharray="4,3"/>`;
+
+  let yL = `<line x1="${p.l}" y1="${zY}" x2="${W - p.r}" y2="${zY}" stroke="#8b949e" stroke-width="0.5"/>`;
+  for (let i = 0; i <= 4; i++) {
+    const v = -mx + (2 * mx) * i / 4;
+    const y = sy(v);
+    yL += `<text x="${p.l - 5}" y="${y + 3}" text-anchor="end" fill="#8b949e" font-size="8">${v.toFixed(5)}</text>`;
+  }
+
+  let xL = '';
+  for (let i = 0; i < totalMonths; i += Math.max(1, Math.floor(totalMonths / 10))) {
+    const label = i < monthly.length ? monthly[i].key : `+${i - monthly.length + 1}mo`;
+    xL += `<text x="${sx(i)}" y="${H - 5}" text-anchor="middle" fill="#8b949e" font-size="7">${label}</text>`;
+  }
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:220px">${yL}${xL}${divLine}${hist}${fcOpt}${fcAvg}${fcPes}
+    <text x="${W - p.r + 4}" y="${sy(forecast.avgMonthlyPnlBtc + forecast.stdDev) + 3}" fill="var(--green)" font-size="8">opt</text>
+    <text x="${W - p.r + 4}" y="${sy(forecast.avgMonthlyPnlBtc) + 3}" fill="var(--accent)" font-size="8">avg</text>
+    <text x="${W - p.r + 4}" y="${sy(forecast.avgMonthlyPnlBtc - forecast.stdDev) + 3}" fill="var(--red)" font-size="8">pes</text>
   </svg>`;
 }
 
 async function main() {
-  console.log('=== myStoicTracker — Binance Trading Analysis ===');
-  console.log(`Period: ${new Date(START_TIME).toISOString().slice(0, 10)} to ${new Date(NOW).toISOString().slice(0, 10)}\n`);
+  console.log(`=== myStoicTracker — ${PERIOD_DAYS}-day Analysis ===`);
+  console.log(`Period: ${new Date(START_TIME).toISOString().slice(0, 10)} → ${new Date(NOW).toISOString().slice(0, 10)}\n`);
 
-  console.log('1. Fetching prices...');
+  console.log('1. Prices...');
   const priceMap = await fetchAllPrices();
   const btcPrice = priceMap['BTCUSDT'];
-  console.log(`   BTC/USDT: ${btcPrice}`);
+  console.log(`   BTC/USDT: $${btcPrice}`);
 
-  console.log('2. Fetching daily BTC prices for historical conversion...');
+  console.log('2. Daily BTC candles...');
   const dailyPrices = await getDailyBtcPrices();
-  console.log(`   Got ${dailyPrices.length} daily candles`);
+  console.log(`   ${dailyPrices.length} candles`);
 
-  console.log('3. Fetching deposits...');
+  console.log('3. Deposits (6 months)...');
   const deposits = await getDeposits();
-  console.log(`   ${deposits.length} deposits found`);
-
   const depositDetails = [];
   let totalDepositsBtc = 0;
   for (const d of deposits) {
-    const amount = parseFloat(d.amount);
-    const btcPriceAtTime = btcPriceAtTimeFn(d.insertTime, dailyPrices) || btcPrice;
-    const btcValue = d.coin === 'BTC' ? amount : amount / btcPriceAtTime;
-    depositDetails.push({ ...d, btcValue, btcPriceAtTime });
-    totalDepositsBtc += btcValue;
-    console.log(`   ${d.coin}: ${amount} → ${btcValue.toFixed(8)} BTC (${new Date(d.insertTime).toISOString().slice(0, 10)})`);
+    const amt = parseFloat(d.amount);
+    const bp = btcPriceAt(d.insertTime, dailyPrices) || btcPrice;
+    const bv = d.coin === 'BTC' ? amt : amt / bp;
+    depositDetails.push({ ...d, btcValue: bv, btcPriceAtTime: bp });
+    totalDepositsBtc += bv;
+    console.log(`   ${d.coin}: ${amt} → ${bv.toFixed(8)} BTC`);
   }
 
-  console.log('4. Fetching withdrawals...');
+  console.log('4. Withdrawals...');
   const withdrawals = await getWithdrawals();
-  const withdrawalDetails = [];
   let totalWithdrawalsBtc = 0;
+  const withdrawalDetails = [];
   for (const w of withdrawals) {
-    const amount = parseFloat(w.amount);
-    const btcValue = toBtc(w.coin, amount, priceMap);
-    withdrawalDetails.push({ ...w, btcValue });
-    totalWithdrawalsBtc += btcValue;
+    const bv = toBtc(w.coin, parseFloat(w.amount), priceMap);
+    withdrawalDetails.push({ ...w, btcValue: bv });
+    totalWithdrawalsBtc += bv;
   }
-  console.log(`   ${withdrawals.length} withdrawals, total ${totalWithdrawalsBtc.toFixed(8)} BTC`);
+  console.log(`   ${withdrawals.length} withdrawals = ${totalWithdrawalsBtc.toFixed(8)} BTC`);
 
-  console.log('5. Fetching transfers Spot ↔ Futures...');
+  console.log('5. Transfers...');
   const transfersToFutures = await getTransferHistory('MAIN_UMFUTURE');
   const transfersFromFutures = await getTransferHistory('UMFUTURE_MAIN');
-  console.log(`   To futures: ${transfersToFutures.length}, From futures: ${transfersFromFutures.length}`);
+  console.log(`   →Futures: ${transfersToFutures.length}, ←Futures: ${transfersFromFutures.length}`);
 
-  console.log('6. Fetching futures account...');
-  const futuresAccount = await getFuturesAccount();
-  const walletBalance = parseFloat(futuresAccount.totalWalletBalance || 0);
+  console.log('6. Futures account...');
+  const futuresAccount = await fapiRequest('/fapi/v2/account');
   const unrealizedPnl = parseFloat(futuresAccount.totalUnrealizedProfit || 0);
-  const totalMarginBalance = parseFloat(futuresAccount.totalMarginBalance || 0);
-  console.log(`   Wallet: ${walletBalance.toFixed(2)} USDT, Unrealized: ${unrealizedPnl.toFixed(2)} USDT`);
+  const futBal = await fapiRequest('/fapi/v2/balance');
+  let fBtc = 0, fUsdt = 0;
+  if (Array.isArray(futBal)) for (const b of futBal) { if (b.asset === 'BTC') fBtc = parseFloat(b.balance); if (b.asset === 'USDT') fUsdt = parseFloat(b.balance); }
+  const totalFuturesValueBtc = fBtc + (fUsdt + unrealizedPnl) / btcPrice;
+  console.log(`   BTC: ${fBtc.toFixed(8)}, USDT: ${fUsdt.toFixed(2)}, uPnl: ${unrealizedPnl.toFixed(2)}`);
+  console.log(`   Total: ${totalFuturesValueBtc.toFixed(8)} BTC`);
 
-  const futuresBalanceData = await getFuturesBalance();
-  let futuresBtcBalance = 0;
-  let futuresUsdtBalance = 0;
-  if (Array.isArray(futuresBalanceData)) {
-    for (const b of futuresBalanceData) {
-      if (b.asset === 'BTC') futuresBtcBalance = parseFloat(b.balance);
-      if (b.asset === 'USDT') futuresUsdtBalance = parseFloat(b.balance);
-    }
-  }
-  console.log(`   BTC: ${futuresBtcBalance.toFixed(8)}, USDT: ${futuresUsdtBalance.toFixed(2)}`);
-
-  const totalFuturesValueBtc = futuresBtcBalance + (futuresUsdtBalance + unrealizedPnl) / btcPrice;
-  console.log(`   Total futures: ${totalFuturesValueBtc.toFixed(8)} BTC`);
-
-  console.log('7. Fetching spot balances & trades...');
-  const spotBalances = await getAccountBalances();
-  const spotTrades = await getSpotTrades(priceMap);
-  const spotBtc = spotBalances.reduce((s, b) => s + toBtc(b.asset, b.total, priceMap), 0);
-  console.log(`   Spot: ${spotBtc.toFixed(8)} BTC, ${spotTrades.length} trades`);
+  console.log('7. Spot...');
+  const { data: accData } = await client.account();
+  const spotBtc = accData.balances.filter(b => parseFloat(b.free) > 0 || parseFloat(b.locked) > 0).reduce((s, b) => s + toBtc(b.asset, parseFloat(b.free) + parseFloat(b.locked), priceMap), 0);
+  console.log(`   Spot: ${spotBtc.toFixed(8)} BTC`);
 
   const totalBalanceBtc = totalFuturesValueBtc + spotBtc;
 
-  console.log('8. Fetching futures income history...');
+  console.log('8. Income history (this takes a while)...');
   const futuresIncome = await getFuturesIncome();
-  console.log(`   ${futuresIncome.length} income records`);
-
+  console.log(`   ${futuresIncome.length.toLocaleString()} records`);
   const incomeByType = {};
-  for (const inc of futuresIncome) {
-    const t = inc.incomeType;
-    incomeByType[t] = (incomeByType[t] || 0) + parseFloat(inc.income);
-  }
-  for (const [t, v] of Object.entries(incomeByType)) {
-    console.log(`   ${t}: ${v.toFixed(4)} USDT (${(v / btcPrice).toFixed(8)} BTC)`);
-  }
+  for (const inc of futuresIncome) { const t = inc.incomeType; incomeByType[t] = (incomeByType[t] || 0) + parseFloat(inc.income); }
+  for (const [t, v] of Object.entries(incomeByType)) console.log(`   ${t}: ${v.toFixed(2)} USDT = ${(v / btcPrice).toFixed(8)} BTC`);
 
   const futuresPositions = (futuresAccount.positions || [])
     .filter(p => parseFloat(p.positionAmt) !== 0)
-    .map(p => ({
-      symbol: p.symbol,
-      qty: parseFloat(p.positionAmt),
-      entry: parseFloat(p.entryPrice),
-      pnlUsdt: parseFloat(p.unrealizedProfit),
-      leverage: parseInt(p.leverage)
-    }));
+    .map(p => ({ symbol: p.symbol, qty: parseFloat(p.positionAmt), entry: parseFloat(p.entryPrice), pnlUsdt: parseFloat(p.unrealizedProfit), leverage: parseInt(p.leverage) }));
 
   const netExternalFlowBtc = totalDepositsBtc - totalWithdrawalsBtc;
   const robotPnlBtc = totalBalanceBtc - netExternalFlowBtc;
   const roiBtc = netExternalFlowBtc > 0 ? robotPnlBtc / netExternalFlowBtc : 0;
 
-  console.log('\n=== RESULTS (all in BTC) ===');
-  console.log(`Total Portfolio:     ${totalBalanceBtc.toFixed(8)} BTC`);
-  console.log(`External Deposits:   +${totalDepositsBtc.toFixed(8)} BTC`);
-  console.log(`External Withdrawals:-${totalWithdrawalsBtc.toFixed(8)} BTC`);
-  console.log(`Net External Flow:   ${netExternalFlowBtc.toFixed(8)} BTC`);
-  console.log(`Robot P&L:           ${robotPnlBtc >= 0 ? '+' : ''}${robotPnlBtc.toFixed(8)} BTC`);
-  console.log(`ROI (BTC):           ${(roiBtc * 100).toFixed(2)}%`);
+  console.log('\n=== RESULTS ===');
+  console.log(`Portfolio:   ${totalBalanceBtc.toFixed(8)} BTC`);
+  console.log(`Deposits:    +${totalDepositsBtc.toFixed(8)} BTC`);
+  console.log(`Robot P&L:   ${robotPnlBtc >= 0 ? '+' : ''}${robotPnlBtc.toFixed(8)} BTC`);
+  console.log(`ROI (BTC):   ${(roiBtc * 100).toFixed(2)}%`);
 
+  console.log('\n9. Building analytics...');
   const incomeTimeline = buildIncomeTimeline(futuresIncome, dailyPrices, btcPrice);
+  const weeklyPnl = buildWeeklyPnl(futuresIncome, dailyPrices, btcPrice);
+  const monthlyPnl = buildMonthlyPnl(futuresIncome, dailyPrices, btcPrice);
+  const forecast = computeForecastData(monthlyPnl, totalBalanceBtc, netExternalFlowBtc);
+  console.log(`   ${weeklyPnl.length} weeks, ${monthlyPnl.length} months`);
+  console.log(`   Avg monthly PNL: ${forecast.avgMonthlyPnlBtc.toFixed(8)} BTC`);
+  console.log(`   StdDev: ${forecast.stdDev.toFixed(8)} BTC`);
+  console.log(`   Trend: ${forecast.trendDirection} (slope: ${forecast.trend.slope.toFixed(10)})`);
 
-  const dailyPortfolioValues = buildDailyPortfolio(
-    dailyPrices, transfersToFutures, transfersFromFutures, deposits, btcPrice
-  );
-
-  console.log('\n9. Generating report...');
+  console.log('\n10. Generating report...');
   const html = generateHTML({
     deposits, withdrawals, depositDetails, withdrawalDetails,
-    spotTrades, futuresAccount, futuresIncome, incomeByType,
-    priceMap, dailyPrices,
+    spotTrades: [], futuresIncome, incomeByType, priceMap, dailyPrices,
     transfersToFutures, transfersFromFutures,
     totalBalanceBtc, totalDepositsBtc, totalWithdrawalsBtc,
     netExternalFlowBtc, robotPnlBtc, roiBtc,
     totalFuturesValueBtc, futuresPositions,
-    dailyPortfolioValues, incomeTimeline
+    incomeTimeline, weeklyPnl, monthlyPnl, forecast
   });
-
   fs.writeFileSync(path.join(__dirname, 'report.html'), html, 'utf-8');
-  console.log('   report.html saved');
-
   fs.mkdirSync(path.join(__dirname, 'report-data'), { recursive: true });
-  fs.writeFileSync(
-    path.join(__dirname, 'report-data', 'raw-data.json'),
-    JSON.stringify({ deposits, withdrawals, spotTrades, futuresIncome, futuresPositions, incomeByType, transfersToFutures, transfersFromFutures }, null, 2),
-    'utf-8'
-  );
-  console.log('   raw-data.json saved\n\nDone!');
-}
-
-function btcPriceAtTimeFn(ts, dailyPrices) {
-  if (!dailyPrices.length) return null;
-  let best = dailyPrices[0];
-  let minD = Math.abs(ts - best.time);
-  for (const p of dailyPrices) {
-    const d = Math.abs(ts - p.time);
-    if (d < minD) { minD = d; best = p; }
-  }
-  return best.close;
-}
-
-function buildIncomeTimeline(income, dailyPrices, currentBtcPrice) {
-  if (!income.length) return [];
-  const sorted = [...income]
-    .filter(i => i.incomeType === 'REALIZED_PNL')
-    .sort((a, b) => parseInt(a.time) - parseInt(b.time));
-  if (!sorted.length) return [];
-
-  let cumUsdt = 0;
-  let cumBtc = 0;
-  const points = [];
-  for (const inc of sorted) {
-    const t = parseInt(inc.time);
-    const val = parseFloat(inc.income);
-    cumUsdt += val;
-    const btcP = btcPriceAtTimeFn(t, dailyPrices) || currentBtcPrice;
-    cumBtc += btcP ? val / btcP : 0;
-    points.push({ time: t, cumulativeUsdt: cumUsdt, cumulativeBtc: cumBtc });
-  }
-  return points;
-}
-
-function buildDailyPortfolio(dailyPrices, toFut, fromFut, deposits, currentBtcPrice) {
-  if (!dailyPrices.length) return [];
-
-  let accBtc = 0;
-  const events = [];
-  for (const d of deposits) {
-    const amt = parseFloat(d.amount);
-    const btcVal = d.coin === 'BTC' ? amt : amt / (btcPriceAtTimeFn(d.insertTime, dailyPrices) || currentBtcPrice);
-    events.push({ time: d.insertTime, delta: btcVal });
-  }
-  events.sort((a, b) => a.time - b.time);
-
-  const points = [];
-  let eventIdx = 0;
-  for (const dp of dailyPrices) {
-    while (eventIdx < events.length && events[eventIdx].time <= dp.time) {
-      accBtc += events[eventIdx].delta;
-      eventIdx++;
-    }
-    points.push({ time: dp.time, btcValue: accBtc > 0 ? accBtc : 0 });
-  }
-  while (eventIdx < events.length) {
-    accBtc += events[eventIdx].delta;
-    eventIdx++;
-  }
-  if (points.length > 0) {
-    points[points.length - 1].btcValue = accBtc;
-  }
-  return points;
+  fs.writeFileSync(path.join(__dirname, 'report-data', 'raw-data.json'),
+    JSON.stringify({ deposits, withdrawals, futuresIncome, futuresPositions, incomeByType, monthlyPnl, weeklyPnl, forecast, transfersToFutures, transfersFromFutures }, null, 2), 'utf-8');
+  console.log('   Done! report.html saved\n');
 }
 
 main().catch(err => { console.error('Fatal:', err); process.exit(1); });
