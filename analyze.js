@@ -315,24 +315,37 @@ svg text{font-family:-apple-system,sans-serif}
 .trend-down{background:rgba(255,23,68,0.15);color:var(--red)}
 .trend-flat{background:rgba(139,148,158,0.15);color:var(--muted)}
 @media(max-width:900px){.scenarios{grid-template-columns:1fr}.calc-inputs{flex-direction:column}}
+.date-picker-bar{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 20px;margin-bottom:20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.date-picker-bar label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.date-picker-bar input[type=date]{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:14px;font-family:'SF Mono',monospace;outline:none;cursor:pointer;color-scheme:dark}
+.date-picker-bar input[type=date]:focus{border-color:var(--accent)}
+.date-picker-bar .dp-info{font-size:12px;color:var(--muted);margin-left:auto}
+.date-picker-bar .dp-days{font-size:14px;font-weight:600;color:var(--accent);font-family:'SF Mono',monospace}
+.dyn-card .card-value{transition:color .3s}
 </style></head><body>
 <div class="container">
 <h1>myStoicTracker</h1>
-<p class="subtitle">Binance Futures Bot Performance &mdash; ${fmtDate(START_TIME)} &ndash; ${fmtDate(NOW)} (${PERIOD_DAYS} days) &mdash; BTC/USDT: $${fmtU(btcPrice)}</p>
+<p class="subtitle">Binance Futures Bot Performance &mdash; BTC/USDT: $${fmtU(btcPrice)}</p>
 
-<div class="grid">
-  <div class="card"><div class="card-label">Total Portfolio</div><div class="card-value">${fmt(totalFuturesValueBtc)} BTC</div><div class="card-sub">$${fmtU(totalFuturesValueBtc * btcPrice)}</div></div>
-  <div class="card"><div class="card-label">External Deposits</div><div class="card-value positive">+${fmt(totalDepositsBtc)} BTC</div><div class="card-sub">${deposits.length} deposits</div></div>
-  <div class="card"><div class="card-label">Robot P&L (net)</div><div class="card-value highlight">${pnlSign}${fmt(robotPnlBtc)} BTC</div><div class="card-sub">${pnlSign}$${fmtU(robotPnlBtc * btcPrice)}</div></div>
-  <div class="card"><div class="card-label">ROI in BTC</div><div class="card-value highlight">${fmtPct(roiBtc)}</div><div class="card-sub">over ${PERIOD_DAYS} days</div></div>
-  <div class="card"><div class="card-label">Monthly ROI (avg)</div><div class="card-value highlight">${fmtPct(forecast.avgMonthlyRoi)}</div><div class="card-sub">trend: ${forecast.trendDirection}<span class="trend-badge trend-${forecast.trendDirection === 'improving' ? 'up' : forecast.trendDirection === 'declining' ? 'down' : 'flat'}">${forecast.trendDirection === 'improving' ? '↑' : forecast.trendDirection === 'declining' ? '↓' : '→'}</span></div></div>
+<div class="date-picker-bar">
+  <label for="startDate">Analysis Start Date</label>
+  <input type="date" id="startDate" value="2025-10-18" min="${new Date(START_TIME).toISOString().slice(0,10)}" max="${new Date(NOW).toISOString().slice(0,10)}">
+  <span class="dp-info">Period: <span class="dp-days" id="dpDays">&mdash;</span> days &mdash; ending ${fmtDate(NOW)}</span>
+</div>
+
+<div class="grid" id="summaryCards">
+  <div class="card dyn-card"><div class="card-label">Total Portfolio</div><div class="card-value" id="cPortfolio">&mdash;</div><div class="card-sub" id="cPortfolioSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">External Deposits</div><div class="card-value positive" id="cDeposits">&mdash;</div><div class="card-sub" id="cDepositsSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Robot P&L (net)</div><div class="card-value" id="cPnl">&mdash;</div><div class="card-sub" id="cPnlSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">ROI in BTC</div><div class="card-value" id="cRoi">&mdash;</div><div class="card-sub" id="cRoiSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Monthly ROI (avg)</div><div class="card-value" id="cMonthlyRoi">&mdash;</div><div class="card-sub" id="cTrend">&mdash;</div></div>
 </div>
 
 <div class="grid">
-  <div class="card"><div class="card-label">Unrealized PNL</div><div class="card-value ${totalUnrealizedBtc >= 0 ? 'positive' : 'negative'}">${totalUnrealizedBtc >= 0 ? '+' : ''}${fmt(totalUnrealizedBtc)} BTC</div><div class="card-sub">${fmtU(totalUnrealizedUsdt)} USDT &mdash; ${futuresPositions.length} open</div></div>
-  <div class="card"><div class="card-label">Realized PNL</div><div class="card-value ${(incomeByType['REALIZED_PNL'] || 0) >= 0 ? 'positive' : 'negative'}">${toBtcI(incomeByType['REALIZED_PNL'] || 0)} BTC</div><div class="card-sub">${fmtU(incomeByType['REALIZED_PNL'] || 0)} USDT</div></div>
-  <div class="card"><div class="card-label">Funding Fees</div><div class="card-value">${toBtcI(incomeByType['FUNDING_FEE'] || 0)} BTC</div><div class="card-sub">${fmtU(incomeByType['FUNDING_FEE'] || 0)} USDT</div></div>
-  <div class="card"><div class="card-label">Commissions</div><div class="card-value negative">${toBtcI(incomeByType['COMMISSION'] || 0)} BTC</div><div class="card-sub">${fmtU(incomeByType['COMMISSION'] || 0)} USDT</div></div>
+  <div class="card dyn-card"><div class="card-label">Unrealized PNL</div><div class="card-value ${totalUnrealizedBtc >= 0 ? 'positive' : 'negative'}">${totalUnrealizedBtc >= 0 ? '+' : ''}${fmt(totalUnrealizedBtc)} BTC</div><div class="card-sub">${fmtU(totalUnrealizedUsdt)} USDT &mdash; ${futuresPositions.length} open</div></div>
+  <div class="card dyn-card"><div class="card-label">Realized PNL (period)</div><div class="card-value" id="cRealizedPnl">&mdash;</div><div class="card-sub" id="cRealizedPnlSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Funding + Comm (period)</div><div class="card-value" id="cFees">&mdash;</div><div class="card-sub" id="cFeesSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Total Income (period)</div><div class="card-value" id="cTotalIncome">&mdash;</div><div class="card-sub" id="cTotalIncomeSub">&mdash;</div></div>
 </div>
 
 <div class="stat-row">
@@ -340,7 +353,7 @@ svg text{font-family:-apple-system,sans-serif}
   <div class="stat-item"><span class="stat-label">Losing:</span><span class="stat-val negative">${losingCount}</span></div>
   <div class="stat-item"><span class="stat-label">Win rate:</span><span class="stat-val">${fmtPct(profitableCount / (profitableCount + losingCount || 1))}</span></div>
   <div class="stat-item"><span class="stat-label">Leverage:</span><span class="stat-val">9x</span></div>
-  <div class="stat-item"><span class="stat-label">Income records:</span><span class="stat-val">${futuresIncome.length.toLocaleString()}</span></div>
+  <div class="stat-item"><span class="stat-label">Period income records:</span><span class="stat-val" id="cIncomeCount">&mdash;</span></div>
 </div>
 
 ${pnlChart ? `<div class="chart-box"><h3>Cumulative PNL (BTC) — Realized + Funding + Commissions</h3>${pnlChart}</div>` : ''}
@@ -350,7 +363,7 @@ ${monthlyChart ? `<div class="chart-box"><h3>Monthly PNL (BTC) with Trend Line</
 <!-- FORECAST CALCULATOR -->
 <div class="calc-section" id="calculator">
 <h2>Forecast Calculator</h2>
-<p style="color:var(--muted);font-size:12px;margin-bottom:16px">Based on ${monthlyPnl.length} months of data. Avg monthly PNL: ${forecast.avgMonthlyPnlBtc.toFixed(8)} BTC, σ: ${forecast.stdDev.toFixed(8)} BTC</p>
+<p style="color:var(--muted);font-size:12px;margin-bottom:16px" id="fcDescription">Based on data from the selected start date. Adjust period and BTC price to explore scenarios.</p>
 <div class="calc-inputs">
   <div class="calc-input"><label>Forecast Period (months)</label><input type="number" id="fcMonths" value="12" min="1" max="120"></div>
   <div class="calc-input"><label>Expected BTC Price (USD)</label><input type="number" id="fcBtcPrice" value="120000" min="1000" max="10000000" step="1000"></div>
@@ -359,51 +372,126 @@ ${monthlyChart ? `<div class="chart-box"><h3>Monthly PNL (BTC) with Trend Line</
 </div>
 
 <script>
-const FC = {
+const RAW = {
   currentBtc: ${totalBalanceBtc.toFixed(10)},
-  avgMonthlyPnl: ${forecast.avgMonthlyPnlBtc.toFixed(10)},
-  stdDev: ${forecast.stdDev.toFixed(10)},
-  avgMonthlyRoi: ${forecast.avgMonthlyRoi.toFixed(10)},
-  trendSlope: ${forecast.trend.slope.toFixed(12)},
-  monthlyData: [${forecast.monthlyData.map(v => v.toFixed(10)).join(',')}]
+  btcPrice: ${btcPrice},
+  dailyPnl: [${incomeTimeline.map(d => `{t:${d.time},b:${d.dailyBtc.toFixed(12)}}`).join(',')}],
+  deposits: [${depositDetails.map(d => `{t:${d.insertTime},btc:${d.btcValue.toFixed(12)},coin:"${d.coin}",amt:${parseFloat(d.amount).toFixed(12)}}`).join(',')}],
+  monthlyPnl: [${monthlyPnl.map(m => `{k:"${m.key}",t:${m.time},b:${m.pnlBtc.toFixed(12)},u:${m.pnlUsdt.toFixed(4)}}`).join(',')}]
 };
-function recalc() {
-  const months = Math.max(1, parseInt(document.getElementById('fcMonths').value) || 12);
-  const btcP = Math.max(1, parseFloat(document.getElementById('fcBtcPrice').value) || 120000);
-  const scenarios = [
-    { name: 'Optimistic', cls: 'optimistic', pnl: FC.avgMonthlyPnl + FC.stdDev, roi: FC.avgMonthlyRoi + (FC.currentBtc > 0 ? FC.stdDev / FC.currentBtc : 0) },
-    { name: 'Average', cls: 'average', pnl: FC.avgMonthlyPnl, roi: FC.avgMonthlyRoi },
-    { name: 'Pessimistic', cls: 'pessimistic', pnl: FC.avgMonthlyPnl - FC.stdDev, roi: FC.avgMonthlyRoi - (FC.currentBtc > 0 ? FC.stdDev / FC.currentBtc : 0) }
+const $=id=>document.getElementById(id);
+const fmt8=v=>(v===0||isNaN(v))?'0.00000000':v.toFixed(8);
+const fmtPct=v=>isNaN(v)||!isFinite(v)?'N/A':(v*100).toFixed(2)+'%';
+const fmtU=v=>'$'+v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const clr=v=>v>=0?'#00c853':'#ff1744';
+
+function linreg(pts){
+  const n=pts.length;if(n<2)return{slope:0};
+  let sx=0,sy=0,sxx=0,sxy=0;
+  for(let i=0;i<n;i++){sx+=i;sy+=pts[i];sxx+=i*i;sxy+=i*pts[i];}
+  return{slope:(n*sxy-sx*sy)/(n*sxx-sx*sx||1)};
+}
+
+function masterRecalc(){
+  const startDate=new Date($('startDate').value);
+  const startMs=startDate.getTime();
+  const now=${NOW};
+  const days=Math.round((now-startMs)/86400000);
+  $('dpDays').textContent=days;
+
+  const filteredDaily=RAW.dailyPnl.filter(d=>d.t>=startMs);
+  const totalPnlBtc=filteredDaily.reduce((s,d)=>s+d.b,0);
+
+  const filteredDeposits=RAW.deposits.filter(d=>d.t>=startMs);
+  const totalDepBtc=filteredDeposits.reduce((s,d)=>s+d.btc,0);
+
+  const robotPnl=RAW.currentBtc-totalDepBtc;
+  const roi=totalDepBtc>0?robotPnl/totalDepBtc:0;
+
+  const filteredMonthly=RAW.monthlyPnl.filter(m=>m.t>=startMs);
+  const mVals=filteredMonthly.map(m=>m.b);
+  const avgMoPnl=mVals.length?mVals.reduce((a,b)=>a+b,0)/mVals.length:0;
+  const variance=mVals.length?mVals.reduce((s,v)=>s+(v-avgMoPnl)**2,0)/mVals.length:0;
+  const stdDev=Math.sqrt(variance);
+  const avgMoRoi=totalDepBtc>0?avgMoPnl/totalDepBtc:0;
+  const reg=linreg(mVals);
+  const trendDir=reg.slope>0.00001?'improving':reg.slope<-0.00001?'declining':'flat';
+  const trendBadge=trendDir==='improving'?'<span class="trend-badge trend-up">↑</span>':trendDir==='declining'?'<span class="trend-badge trend-down">↓</span>':'<span class="trend-badge trend-flat">→</span>';
+
+  let realizedBtc=0,fundingBtc=0,commBtc=0,incCount=0;
+  for(const d of filteredDaily){realizedBtc+=d.b;incCount++;}
+
+  $('cPortfolio').textContent=fmt8(RAW.currentBtc)+' BTC';
+  $('cPortfolio').style.color='var(--text)';
+  $('cPortfolioSub').textContent=fmtU(RAW.currentBtc*RAW.btcPrice);
+
+  $('cDeposits').textContent='+'+fmt8(totalDepBtc)+' BTC';
+  $('cDepositsSub').textContent=filteredDeposits.length+' deposits (from '+$('startDate').value+')';
+
+  $('cPnl').textContent=(robotPnl>=0?'+':'')+fmt8(robotPnl)+' BTC';
+  $('cPnl').style.color=clr(robotPnl);
+  $('cPnlSub').textContent=(robotPnl>=0?'+':'')+fmtU(robotPnl*RAW.btcPrice);
+
+  $('cRoi').textContent=fmtPct(roi);
+  $('cRoi').style.color=clr(roi);
+  $('cRoiSub').textContent='over '+days+' days';
+
+  $('cMonthlyRoi').textContent=fmtPct(avgMoRoi);
+  $('cMonthlyRoi').style.color=clr(avgMoRoi);
+  $('cTrend').innerHTML='trend: '+trendDir+' '+trendBadge;
+
+  $('cRealizedPnl').textContent=(totalPnlBtc>=0?'+':'')+fmt8(totalPnlBtc)+' BTC';
+  $('cRealizedPnl').style.color=clr(totalPnlBtc);
+  $('cRealizedPnlSub').textContent='realized + funding + commissions';
+
+  $('cFees').textContent=fmt8(totalPnlBtc)+' BTC net';
+  $('cFees').style.color='var(--muted)';
+  $('cFeesSub').textContent='all income types combined';
+
+  $('cTotalIncome').textContent=(totalPnlBtc>=0?'+':'')+fmt8(totalPnlBtc)+' BTC';
+  $('cTotalIncome').style.color=clr(totalPnlBtc);
+  $('cTotalIncomeSub').textContent=fmtU(totalPnlBtc*RAW.btcPrice)+' at current price';
+
+  $('cIncomeCount').textContent=incCount+' days';
+
+  window._fc={currentBtc:RAW.currentBtc,avgMonthlyPnl:avgMoPnl,stdDev:stdDev,avgMonthlyRoi:avgMoRoi};
+  recalcForecast();
+}
+
+function recalcForecast(){
+  const fc=window._fc||{currentBtc:RAW.currentBtc,avgMonthlyPnl:0,stdDev:0,avgMonthlyRoi:0};
+  const months=Math.max(1,parseInt($('fcMonths').value)||12);
+  const btcP=Math.max(1,parseFloat($('fcBtcPrice').value)||120000);
+  const scenarios=[
+    {name:'Optimistic',cls:'optimistic',pnl:fc.avgMonthlyPnl+fc.stdDev,roi:fc.avgMonthlyRoi+(fc.currentBtc>0?fc.stdDev/fc.currentBtc:0)},
+    {name:'Average',cls:'average',pnl:fc.avgMonthlyPnl,roi:fc.avgMonthlyRoi},
+    {name:'Pessimistic',cls:'pessimistic',pnl:fc.avgMonthlyPnl-fc.stdDev,roi:fc.avgMonthlyRoi-(fc.currentBtc>0?fc.stdDev/fc.currentBtc:0)}
   ];
-  let html = '';
-  for (const sc of scenarios) {
-    let btc = FC.currentBtc;
-    for (let m = 0; m < months; m++) btc += sc.pnl;
-    const totalRoi = FC.currentBtc > 0 ? (btc - FC.currentBtc) / FC.currentBtc : 0;
-    const annualRoi = months >= 1 ? (Math.pow(1 + totalRoi, 12 / months) - 1) : totalRoi;
-    const usd = btc * btcP;
-    const pnlBtc = btc - FC.currentBtc;
-    const pnlUsd = pnlBtc * btcP;
-    const c = sc.cls;
-    const color = c === 'optimistic' ? '#00c853' : c === 'average' ? '#58a6ff' : '#ff1744';
-    html += '<div class="scenario ' + c + '">' +
-      '<h4>' + sc.name + '</h4>' +
-      '<div class="sc-row"><span class="sc-label">Monthly PNL</span><span class="sc-val" style="color:' + color + '">' + (sc.pnl >= 0 ? '+' : '') + sc.pnl.toFixed(6) + ' BTC</span></div>' +
-      '<div class="sc-row"><span class="sc-label">Monthly ROI</span><span class="sc-val">' + (sc.roi * 100).toFixed(2) + '%</span></div>' +
-      '<div class="sc-row"><span class="sc-label">Total ROI (' + months + 'mo)</span><span class="sc-val" style="color:' + color + '">' + (totalRoi * 100).toFixed(2) + '%</span></div>' +
-      '<div class="sc-row"><span class="sc-label">Annualized ROI</span><span class="sc-val">' + (annualRoi * 100).toFixed(2) + '%</span></div>' +
-      '<div style="border-top:1px solid var(--border);margin:10px 0;padding-top:10px">' +
-      '<div class="sc-row"><span class="sc-label">P&L</span><span class="sc-val" style="color:' + color + '">' + (pnlBtc >= 0 ? '+' : '') + pnlBtc.toFixed(6) + ' BTC</span></div>' +
-      '<div class="sc-big" style="color:' + color + '">' + btc.toFixed(6) + ' BTC</div>' +
-      '<div class="sc-row"><span class="sc-label">USD Value</span><span class="sc-val" style="color:' + color + '">$' + usd.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span></div>' +
-      '<div class="sc-row"><span class="sc-label">P&L USD</span><span class="sc-val" style="color:' + color + '">' + (pnlUsd >= 0 ? '+$' : '-$') + Math.abs(pnlUsd).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span></div>' +
+  let html='';
+  for(const sc of scenarios){
+    let btc=fc.currentBtc;for(let m=0;m<months;m++)btc+=sc.pnl;
+    const totalRoi=fc.currentBtc>0?(btc-fc.currentBtc)/fc.currentBtc:0;
+    const annualRoi=months>=1?(Math.pow(1+totalRoi,12/months)-1):totalRoi;
+    const usd=btc*btcP;const pnlBtc=btc-fc.currentBtc;const pnlUsd=pnlBtc*btcP;
+    const c=sc.cls;const color=c==='optimistic'?'#00c853':c==='average'?'#58a6ff':'#ff1744';
+    html+='<div class="scenario '+c+'"><h4>'+sc.name+'</h4>'+
+      '<div class="sc-row"><span class="sc-label">Monthly PNL</span><span class="sc-val" style="color:'+color+'">'+(sc.pnl>=0?'+':'')+sc.pnl.toFixed(6)+' BTC</span></div>'+
+      '<div class="sc-row"><span class="sc-label">Monthly ROI</span><span class="sc-val">'+(sc.roi*100).toFixed(2)+'%</span></div>'+
+      '<div class="sc-row"><span class="sc-label">Total ROI ('+months+'mo)</span><span class="sc-val" style="color:'+color+'">'+(totalRoi*100).toFixed(2)+'%</span></div>'+
+      '<div class="sc-row"><span class="sc-label">Annualized ROI</span><span class="sc-val">'+(annualRoi*100).toFixed(2)+'%</span></div>'+
+      '<div style="border-top:1px solid var(--border);margin:10px 0;padding-top:10px">'+
+      '<div class="sc-row"><span class="sc-label">P&L</span><span class="sc-val" style="color:'+color+'">'+(pnlBtc>=0?'+':'')+pnlBtc.toFixed(6)+' BTC</span></div>'+
+      '<div class="sc-big" style="color:'+color+'">'+btc.toFixed(6)+' BTC</div>'+
+      '<div class="sc-row"><span class="sc-label">USD Value</span><span class="sc-val" style="color:'+color+'">$'+usd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>'+
+      '<div class="sc-row"><span class="sc-label">P&L USD</span><span class="sc-val" style="color:'+color+'">'+(pnlUsd>=0?'+$':'-$')+Math.abs(pnlUsd).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>'+
       '</div></div>';
   }
-  document.getElementById('scenarios').innerHTML = html;
+  $('scenarios').innerHTML=html;
 }
-document.getElementById('fcMonths').addEventListener('input', recalc);
-document.getElementById('fcBtcPrice').addEventListener('input', recalc);
-recalc();
+$('startDate').addEventListener('change',masterRecalc);
+$('fcMonths').addEventListener('input',recalcForecast);
+$('fcBtcPrice').addEventListener('input',recalcForecast);
+masterRecalc();
 </script>
 
 ${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast</h3>${trendChart}</div>` : ''}
