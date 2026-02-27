@@ -481,6 +481,43 @@ ${depositDetails.length > 0 ? `<table><thead><tr><th>Date</th><th>Asset</th><th>
 <p><strong>Profit Factor</strong> = Total gross profits / Total gross losses. Above 1.0 means profits exceed losses.</p>
 <p><strong>Forecast (compound)</strong> = Portfolio × (1 + monthly ROI)^months. Uses compound growth where profits reinvest proportionally. Simple (linear) shown for comparison.</p>
 </div>
+
+<h2 class="section-title">Data integrity &amp; forecast standards (CFI-aligned)</h2>
+<div class="card" style="font-size:12px;line-height:1.8">
+<p><strong>Source of data.</strong> All figures are taken directly from Binance API (Spot and Futures): account balance, income history, deposits, withdrawals, transfers. No third-party or estimated data; snapshot and time series are from your linked API key.</p>
+<p><strong>Assumptions.</strong> Forecast uses historical average monthly P&L and standard deviation; trend uses simple linear regression on monthly P&L. Three scenarios (optimistic / average / pessimistic) follow scenario analysis practice: base case ± one standard deviation. Compound projection assumes reinvestment of returns; linear projection is shown for comparison only.</p>
+<p><strong>Limitations.</strong> Past performance does not guarantee future results. Forecast is extrapolation of a short history (${monthlyPnl.length} months) and does not model market regimes, volatility shifts, or funding-rate changes. All values are in BTC; USD equivalents use the spot price at report generation time.</p>
+<p><strong>Disclosure.</strong> This is an analytical report; it is not investment advice. For wealth-management decisions, consider professional advice and your risk tolerance.</p>
+</div>
+
+<h2 class="section-title">Conclusions and recommendations</h2>
+<div class="card" style="font-size:13px;line-height:1.85">
+${(() => {
+  const roiPct = roiBtc * 100;
+  const pnlSign = robotPnlBtc >= 0 ? 'positive' : 'negative';
+  const verdict = roiBtc >= 0.05 ? 'strong' : roiBtc >= 0 ? 'neutral' : roiBtc >= -0.10 ? 'weak' : 'poor';
+  const sharpeOk = riskMetrics.sharpe >= 0.5;
+  const winRateOk = riskMetrics.winRate >= 0.45;
+  const pfOk = riskMetrics.profitFactor >= 0.8;
+  const ddOk = riskMetrics.maxDrawdownPct <= 15;
+  const trendOk = forecast.trendDirection === 'improving';
+  let keepVerdict = ''; let watch = []; let assess = ''; let next = [];
+  if (verdict === 'strong') { keepVerdict = 'Рекомендация: оставлять бота. Результат за период положительный; стоит продолжать мониторинг.'; next.push('Следить за просадкой и ребалансировать при росте риска.'); }
+  else if (verdict === 'neutral') { keepVerdict = 'Рекомендация: можно оставить при условии мониторинга. ROI в плюсе, но невысокий.'; watch.push('Тренд месячной доходности', 'Максимальную просадку', 'Соотношение прибыльных и убыточных дней'); next.push('Зафиксировать целевой ROI и срок; при недостижении — пересмотреть стратегию.'); }
+  else if (verdict === 'weak') { keepVerdict = 'Рекомендация: осторожно — рассмотреть снижение экспозиции или паузу. За период бот в минусе по ROI в BTC.'; watch.push('Тренд (улучшение или ухудшение)', 'Max drawdown и риск разорения', 'Поведение в волатильном рынке'); next.push('Определить лимит убытков; при достижении — остановить или уменьшить объём.'); }
+  else { keepVerdict = 'Рекомендация: рассмотреть отключение или существенное сокращение риска. Текущий ROI в BTC значительно отрицательный.'; watch.push('Немедленно: просадка и маржин-коллы', 'Причины убытков (комиссии, фондинг, стратегия)', 'Альтернативы (другая стратегия или пауза)'); next.push('Принять решение: остановить бота, вывести часть средств или сменить логику.'); }
+  if (!sharpeOk && riskMetrics.sharpe < 0) watch.push('Sharpe &lt; 0 — доходность не компенсирует волатильность');
+  if (!ddOk) watch.push('Максимальная просадка ' + riskMetrics.maxDrawdownPct.toFixed(1) + '% — контроль риска');
+  if (trendOk && verdict !== 'strong') next.push('Тренд улучшения — дать время ещё 1–2 месяца при соблюдении лимитов.');
+  if (!trendOk && verdict !== 'poor') next.push('Тренд ухудшения — не увеличивать экспозицию до разворота.');
+  assess = 'Оценка торговли: ' + (verdict === 'strong' ? 'Хорошая — бот приносит положительный результат с приемлемым риском.' : verdict === 'neutral' ? 'Умеренная — результат в плюсе, но риск/доходность требуют наблюдения.' : verdict === 'weak' ? 'Слабая — убытки за период; стратегия или параметры нуждаются в пересмотре.' : 'Неудовлетворительная — существенные убытки; рекомендуется остановка или смена подхода.');
+  return '<p><strong>Итог по периоду.</strong> Робот за отчётный период: P&L в BTC <span class="' + pnlSign + '">' + (robotPnlBtc >= 0 ? '+' : '') + fmt(robotPnlBtc) + ' BTC</span>, ROI в BTC <span class="' + pnlSign + '">' + roiPct.toFixed(2) + '%</span>. Тренд месячной доходности: <strong>' + forecast.trendDirection + '</strong>. Риск: Sharpe ' + riskMetrics.sharpe.toFixed(2) + ', макс. просадка ' + riskMetrics.maxDrawdownPct.toFixed(1) + '%, доля прибыльных дней ' + (riskMetrics.winRate * 100).toFixed(1) + '%, profit factor ' + riskMetrics.profitFactor.toFixed(2) + '.</p>' +
+    '<p><strong>' + assess + '</strong></p>' +
+    '<p><strong>Оставлять или убирать.</strong> ' + keepVerdict + '</p>' +
+    '<p><strong>На что смотреть.</strong> ' + (watch.length ? watch.join('. ') : 'Текущие метрики в норме; продолжать мониторинг.') + '</p>' +
+    '<p><strong>Что делать дальше.</strong> ' + next.join(' ') + '</p>';
+})()}
+</div>
 </div>
 
 <div id="tab-growth" class="tab-panel" role="tabpanel">
