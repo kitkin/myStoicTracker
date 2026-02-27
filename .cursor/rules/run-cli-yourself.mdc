@@ -8,4 +8,5 @@ alwaysApply: true
 
 - **Always run all CLI commands yourself.** Use the terminal/shell to execute npm, node, git, build, test, and any other CLI invocations.
 - **Never ask the user to run commands** (e.g. "run `npm install`" or "please run `git push`"). Execute them and report the outcome.
+- **Always commit and push for the user** when you have made changes to tracked files. Do not ask them to run `git add` / `git commit` / `git push` — do it yourself and report the result.
 - If a command needs network, credentials, or long runtime, run it with an appropriate timeout or in the background as needed; then follow up (e.g. git push after commits).
