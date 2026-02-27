@@ -439,10 +439,10 @@ ${drawdownChart ? `<div class="chart-box"><h3>Drawdown from Peak (BTC)</h3>${dra
 
 <h2 class="section-title">Risk Metrics</h2>
 <div class="grid">
-  <div class="card"><div class="card-label">Sharpe Ratio (ann.)</div><div class="card-value" style="color:${riskMetrics.sharpe >= 1 ? 'var(--green)' : riskMetrics.sharpe >= 0 ? 'var(--accent)' : 'var(--red)'}">${riskMetrics.sharpe.toFixed(2)}</div><div class="card-sub">avg return / volatility x √365</div></div>
+  <div class="card"><div class="card-label">Sharpe Ratio (ann.)</div><div class="card-value" style="color:${riskMetrics.sharpe >= 1 ? 'var(--green)' : riskMetrics.sharpe >= 0 ? 'var(--accent)' : 'var(--red)'}">${riskMetrics.sharpe.toFixed(2)}</div><div class="card-sub">daily return % / volatility × √365 (vs. equity)</div></div>
   <div class="card"><div class="card-label">Max Drawdown</div><div class="card-value negative">${riskMetrics.maxDrawdownPct.toFixed(2)}%</div><div class="card-sub">${riskMetrics.maxDrawdownBtc.toFixed(8)} BTC</div></div>
-  <div class="card"><div class="card-label">Best Day</div><div class="card-value positive">+${riskMetrics.bestDay.toFixed(8)} BTC</div><div class="card-sub">${riskMetrics.bestDayDate}</div></div>
-  <div class="card"><div class="card-label">Worst Day</div><div class="card-value negative">${riskMetrics.worstDay.toFixed(8)} BTC</div><div class="card-sub">${riskMetrics.worstDayDate}</div></div>
+  <div class="card"><div class="card-label">Best Day</div><div class="card-value positive">+${(riskMetrics.bestDayPct * 100).toFixed(2)}%</div><div class="card-sub">${riskMetrics.bestDayDate} (${riskMetrics.bestDay >= 0 ? '+' : ''}${riskMetrics.bestDay.toFixed(6)} BTC)</div></div>
+  <div class="card"><div class="card-label">Worst Day</div><div class="card-value negative">${(riskMetrics.worstDayPct * 100).toFixed(2)}%</div><div class="card-sub">${riskMetrics.worstDayDate} (${riskMetrics.worstDay.toFixed(6)} BTC)</div></div>
   <div class="card"><div class="card-label">Daily Win Rate</div><div class="card-value" style="color:${riskMetrics.winRate >= 0.5 ? 'var(--green)' : 'var(--red)'}">${(riskMetrics.winRate * 100).toFixed(1)}%</div><div class="card-sub">${riskMetrics.winDays}/${riskMetrics.totalDays} profitable days</div></div>
   <div class="card"><div class="card-label">Profit Factor</div><div class="card-value" style="color:${riskMetrics.profitFactor >= 1 ? 'var(--green)' : 'var(--red)'}">${riskMetrics.profitFactor.toFixed(2)}</div><div class="card-sub">gross profit / gross loss</div></div>
 </div>
@@ -740,16 +740,23 @@ masterRecalc();
 
 function computeRiskMetrics(timeline, totalBtc) {
   if (!timeline || timeline.length < 2) {
-    return { sharpe: 0, maxDrawdownBtc: 0, maxDrawdownPct: 0, bestDay: 0, worstDay: 0, bestDayDate: '-', worstDayDate: '-', winRate: 0, winDays: 0, totalDays: 0, profitFactor: 0 };
+    return { sharpe: 0, maxDrawdownBtc: 0, maxDrawdownPct: 0, bestDay: 0, worstDay: 0, bestDayPct: 0, worstDayPct: 0, bestDayDate: '-', worstDayDate: '-', winRate: 0, winDays: 0, totalDays: 0, profitFactor: 0 };
   }
-  const dailyReturns = timeline.map(d => d.dailyBtc);
-  const mean = dailyReturns.reduce((a, b) => a + b, 0) / dailyReturns.length;
-  const variance = dailyReturns.reduce((s, v) => s + (v - mean) ** 2, 0) / dailyReturns.length;
+  const startEquity = totalBtc - timeline[timeline.length - 1].cumulativeBtc;
+  const dailyReturnPct = [];
+  let equityStart = startEquity;
+  for (let i = 0; i < timeline.length; i++) {
+    const pct = equityStart > 0 ? timeline[i].dailyBtc / equityStart : 0;
+    dailyReturnPct.push(pct);
+    equityStart += timeline[i].dailyBtc;
+  }
+  const mean = dailyReturnPct.reduce((a, b) => a + b, 0) / dailyReturnPct.length;
+  const variance = dailyReturnPct.reduce((s, v) => s + (v - mean) ** 2, 0) / dailyReturnPct.length;
   const stdDev = Math.sqrt(variance);
   const sharpe = stdDev > 0 ? (mean / stdDev) * Math.sqrt(365) : 0;
 
   let peak = 0, maxDD = 0, maxDDbtc = 0;
-  let equity = totalBtc - timeline[timeline.length - 1].cumulativeBtc;
+  let equity = startEquity;
   for (const d of timeline) {
     equity += d.dailyBtc;
     if (equity > peak) peak = equity;
@@ -758,12 +765,13 @@ function computeRiskMetrics(timeline, totalBtc) {
   }
   const maxDDpct = peak > 0 ? (maxDDbtc / peak) * 100 : 0;
 
-  let bestDay = -Infinity, worstDay = Infinity, bestIdx = 0, worstIdx = 0;
+  let bestDay = -Infinity, worstDay = Infinity, bestDayPct = -Infinity, worstDayPct = Infinity, bestIdx = 0, worstIdx = 0;
   for (let i = 0; i < timeline.length; i++) {
-    if (timeline[i].dailyBtc > bestDay) { bestDay = timeline[i].dailyBtc; bestIdx = i; }
-    if (timeline[i].dailyBtc < worstDay) { worstDay = timeline[i].dailyBtc; worstIdx = i; }
+    if (timeline[i].dailyBtc > bestDay) { bestDay = timeline[i].dailyBtc; bestDayPct = dailyReturnPct[i]; bestIdx = i; }
+    if (timeline[i].dailyBtc < worstDay) { worstDay = timeline[i].dailyBtc; worstDayPct = dailyReturnPct[i]; worstIdx = i; }
   }
   const fmtD = ts => new Date(ts).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const dailyReturns = timeline.map(d => d.dailyBtc);
   const winDays = dailyReturns.filter(r => r > 0).length;
   const grossProfit = dailyReturns.filter(r => r > 0).reduce((s, v) => s + v, 0);
   const grossLoss = Math.abs(dailyReturns.filter(r => r < 0).reduce((s, v) => s + v, 0));
@@ -774,6 +782,8 @@ function computeRiskMetrics(timeline, totalBtc) {
     maxDrawdownPct: maxDDpct,
     bestDay: bestDay === -Infinity ? 0 : bestDay,
     worstDay: worstDay === Infinity ? 0 : worstDay,
+    bestDayPct: bestDayPct === -Infinity ? 0 : bestDayPct,
+    worstDayPct: worstDayPct === Infinity ? 0 : worstDayPct,
     bestDayDate: fmtD(timeline[bestIdx].time),
     worstDayDate: fmtD(timeline[worstIdx].time),
     winRate: timeline.length > 0 ? winDays / timeline.length : 0,
