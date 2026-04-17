@@ -421,8 +421,10 @@ svg text{font-family:-apple-system,sans-serif}
   <div class="card dyn-card"><div class="card-label">Total Portfolio</div><div class="card-value" id="cPortfolio">&mdash;</div><div class="card-sub" id="cPortfolioSub">&mdash;</div></div>
   <div class="card dyn-card"><div class="card-label">External Deposits (BTC)</div><div class="card-value positive" id="cDeposits">&mdash;</div><div class="card-sub" id="cDepositsSub">&mdash;</div></div>
   <div class="card dyn-card"><div class="card-label">External Deposits (USDT)</div><div class="card-value" id="cDepositsUsdt" style="color:var(--gold)">&mdash;</div><div class="card-sub" id="cDepositsUsdtSub">&mdash;</div></div>
-  <div class="card dyn-card"><div class="card-label">Robot P&L (BTC)</div><div class="card-value" id="cPnl">&mdash;</div><div class="card-sub" id="cPnlSub">&mdash;</div></div>
-  <div class="card dyn-card"><div class="card-label">ROI in BTC</div><div class="card-value" id="cRoi">&mdash;</div><div class="card-sub" id="cRoiSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Robot P&L — Realized only</div><div class="card-value" id="cPnlRealized">&mdash;</div><div class="card-sub" id="cPnlRealizedSub">closed trades: PNL + funding + commissions</div></div>
+  <div class="card dyn-card"><div class="card-label">Robot P&L — incl. Unrealized</div><div class="card-value" id="cPnl">&mdash;</div><div class="card-sub" id="cPnlSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">ROI in BTC (incl. Unrealized)</div><div class="card-value" id="cRoi">&mdash;</div><div class="card-sub" id="cRoiSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">ROI in BTC (Realized only)</div><div class="card-value" id="cRoiRealized">&mdash;</div><div class="card-sub" id="cRoiRealizedSub">&mdash;</div></div>
   <div class="card dyn-card"><div class="card-label">Monthly ROI (avg)</div><div class="card-value" id="cMonthlyRoi">&mdash;</div><div class="card-sub" id="cTrend">&mdash;</div></div>
 </div>
 
@@ -484,8 +486,9 @@ ${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast
 <p><strong>Added during bot operation:</strong> +${fmt(postBotDepositsBtc)} BTC ($${fmtU(depositsAfterBot.reduce((s,d) => s + d.usdtValue, 0))}) from ${depositsAfterBot.length} deposits</p>
 <p><strong>Withdrawn during bot operation:</strong> -${fmt(postBotWithdrawalsBtc)} BTC ($${fmtU(withdrawalsAfterBot.reduce((s,w) => s + w.usdtValue, 0))}) from ${withdrawalsAfterBot.length} withdrawals</p>
 <p><strong>Total capital deployed:</strong> ${fmt(totalCapitalDeployedBtc)} BTC ($${fmtU((() => { const td = depositDetails.reduce((s,d) => s + d.usdtValue, 0); const tw = withdrawalDetails.reduce((s,w) => s + w.usdtValue, 0); return td - tw; })())})</p>
-<p><strong>Current portfolio:</strong> ${fmt(totalBalanceBtc)} BTC</p>
-<p><strong>BTC gained by bot:</strong> <span style="color:${roiColor}">${pnlSign}${fmt(robotPnlBtc)} BTC</span> &mdash; ROI: <span style="color:${roiColor}">${(roiBtc * 100).toFixed(2)}%</span> growth in BTC</p>
+<p><strong>Current portfolio:</strong> ${fmt(totalBalanceBtc)} BTC <span style="color:var(--muted);font-size:11px">(includes +${fmt(totalUnrealizedBtc)} BTC unrealized from ${futuresPositions.length} open positions)</span></p>
+<p><strong>BTC gained by bot (total incl. unrealized):</strong> <span style="color:${roiColor}">${pnlSign}${fmt(robotPnlBtc)} BTC</span> &mdash; ROI: <span style="color:${roiColor}">${(roiBtc * 100).toFixed(2)}%</span></p>
+<p><strong>BTC gained by bot (realized only):</strong> <span style="color:${(robotPnlBtc - totalUnrealizedBtc) >= 0 ? '#00c853' : '#ff1744'}">${(robotPnlBtc - totalUnrealizedBtc) >= 0 ? '+' : ''}${fmt(robotPnlBtc - totalUnrealizedBtc)} BTC</span> &mdash; ROI: <span style="color:${(robotPnlBtc - totalUnrealizedBtc) >= 0 ? '#00c853' : '#ff1744'}">${totalCapitalDeployedBtc > 0 ? (((robotPnlBtc - totalUnrealizedBtc) / totalCapitalDeployedBtc) * 100).toFixed(2) : '0.00'}%</span> &mdash; from closed trades (PNL + funding + commissions)</p>
 </div>
 
 <h2 class="section-title">All Deposits (Money Sent to Binance)</h2>
@@ -579,6 +582,7 @@ ${(() => {
 <script>
 const RAW = {
   currentBtc: ${totalBalanceBtc.toFixed(10)},
+  unrealizedBtc: ${totalUnrealizedBtc.toFixed(10)},
   btcPrice: ${btcPrice},
   botStartTime: ${botStartTime},
   botDays: ${botDays},
@@ -634,6 +638,8 @@ function masterRecalc(){
 
   const robotPnl=RAW.currentBtc-totalCapBtc;
   const roi=totalCapBtc>0?robotPnl/totalCapBtc:0;
+  const robotPnlRealized=robotPnl-RAW.unrealizedBtc;
+  const roiRealized=totalCapBtc>0?robotPnlRealized/totalCapBtc:0;
 
   const filteredMonthly=RAW.monthlyPnl.filter(m=>m.t>=startMs);
   const mVals=filteredMonthly.map(m=>m.b);
@@ -657,11 +663,19 @@ function masterRecalc(){
 
   $('cPnl').textContent=(robotPnl>=0?'+':'')+fmt8(robotPnl)+' BTC';
   $('cPnl').style.color=clr(robotPnl);
-  $('cPnlSub').textContent='net BTC gained over '+days+' days';
+  $('cPnlSub').textContent='current portfolio - capital deployed';
+
+  $('cPnlRealized').textContent=(robotPnlRealized>=0?'+':'')+fmt8(robotPnlRealized)+' BTC';
+  $('cPnlRealized').style.color=clr(robotPnlRealized);
+  $('cPnlRealizedSub').textContent='closed trades only: excludes +'+fmt8(RAW.unrealizedBtc)+' BTC unrealized';
 
   $('cRoi').textContent=fmtPct(roi);
   $('cRoi').style.color=clr(roi);
   $('cRoiSub').textContent='BTC growth over '+days+' days';
+
+  $('cRoiRealized').textContent=fmtPct(roiRealized);
+  $('cRoiRealized').style.color=clr(roiRealized);
+  $('cRoiRealizedSub').textContent='realized closed trades only';
 
   $('cMonthlyRoi').textContent=fmtPct(avgMoRoi);
   $('cMonthlyRoi').style.color=clr(avgMoRoi);
