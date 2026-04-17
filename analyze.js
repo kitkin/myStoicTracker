@@ -436,12 +436,13 @@ svg text{font-family:-apple-system,sans-serif}
 </div>
 
 <div class="stat-row">
-  <div class="stat-item"><span class="stat-label">Profitable positions:</span><span class="stat-val positive">${profitableCount}</span></div>
-  <div class="stat-item"><span class="stat-label">Losing:</span><span class="stat-val negative">${losingCount}</span></div>
-  <div class="stat-item"><span class="stat-label">Win rate:</span><span class="stat-val">${fmtPct(profitableCount / (profitableCount + losingCount || 1))}</span></div>
+  <div class="stat-item"><span class="stat-label">Open positions in profit (now):</span><span class="stat-val positive">${profitableCount}</span></div>
+  <div class="stat-item"><span class="stat-label">Open positions in loss (now):</span><span class="stat-val negative">${losingCount}</span></div>
+  <div class="stat-item" title="Snapshot of currently open positions only. Not a historical win rate. Independent of Analysis Start Date."><span class="stat-label">Open positions % in profit (snapshot):</span><span class="stat-val">${fmtPct(profitableCount / (profitableCount + losingCount || 1))}</span></div>
   <div class="stat-item"><span class="stat-label">Leverage:</span><span class="stat-val">9x</span></div>
-  <div class="stat-item"><span class="stat-label">Period income records:</span><span class="stat-val" id="cIncomeCount">&mdash;</span></div>
+  <div class="stat-item"><span class="stat-label">Trading days in period:</span><span class="stat-val" id="cIncomeCount">&mdash;</span></div>
 </div>
+<p style="font-size:11px;color:var(--muted);margin-top:-12px;margin-bottom:24px">Open positions snapshot is taken at report generation time and does NOT depend on Analysis Start Date. For historical win rate, see Daily Win Rate in Risk Metrics (Charts &amp; data tab).</p>
 
 <!-- FORECAST CALCULATOR -->
 <div class="calc-section" id="calculator">
@@ -459,14 +460,14 @@ svg text{font-family:-apple-system,sans-serif}
 ${equityCurve ? `<div class="chart-box"><h3>Equity Curve — Compound Growth (BTC)</h3>${equityCurve}</div>` : ''}
 ${drawdownChart ? `<div class="chart-box"><h3>Drawdown from Peak (BTC)</h3>${drawdownChart}</div>` : ''}
 
-<h2 class="section-title">Risk Metrics</h2>
+<h2 class="section-title">Risk Metrics <span style="font-size:11px;color:var(--muted);font-weight:400">(dynamic — recalculated from Analysis Start Date)</span></h2>
 <div class="grid">
-  <div class="card"><div class="card-label">Sharpe Ratio (ann.)</div><div class="card-value" style="color:${riskMetrics.sharpe >= 1 ? 'var(--green)' : riskMetrics.sharpe >= 0 ? 'var(--accent)' : 'var(--red)'}">${riskMetrics.sharpe.toFixed(2)}</div><div class="card-sub">daily return % / volatility × √365 (vs. equity)</div></div>
-  <div class="card"><div class="card-label">Max Drawdown</div><div class="card-value negative">${riskMetrics.maxDrawdownPct.toFixed(2)}%</div><div class="card-sub">${riskMetrics.maxDrawdownBtc.toFixed(8)} BTC</div></div>
-  <div class="card"><div class="card-label">Best Day</div><div class="card-value positive">+${(riskMetrics.bestDayPct * 100).toFixed(2)}%</div><div class="card-sub">${riskMetrics.bestDayDate} (${riskMetrics.bestDay >= 0 ? '+' : ''}${riskMetrics.bestDay.toFixed(6)} BTC)</div></div>
-  <div class="card"><div class="card-label">Worst Day</div><div class="card-value negative">${(riskMetrics.worstDayPct * 100).toFixed(2)}%</div><div class="card-sub">${riskMetrics.worstDayDate} (${riskMetrics.worstDay.toFixed(6)} BTC)</div></div>
-  <div class="card"><div class="card-label">Daily Win Rate</div><div class="card-value" style="color:${riskMetrics.winRate >= 0.5 ? 'var(--green)' : 'var(--red)'}">${(riskMetrics.winRate * 100).toFixed(1)}%</div><div class="card-sub">${riskMetrics.winDays}/${riskMetrics.totalDays} profitable days</div></div>
-  <div class="card"><div class="card-label">Profit Factor</div><div class="card-value" style="color:${riskMetrics.profitFactor >= 1 ? 'var(--green)' : 'var(--red)'}">${riskMetrics.profitFactor.toFixed(2)}</div><div class="card-sub">gross profit / gross loss</div></div>
+  <div class="card dyn-card"><div class="card-label">Sharpe Ratio (ann.)</div><div class="card-value" id="rmSharpe">&mdash;</div><div class="card-sub">daily return % / volatility × √365</div></div>
+  <div class="card dyn-card"><div class="card-label">Max Drawdown</div><div class="card-value negative" id="rmMaxDD">&mdash;</div><div class="card-sub" id="rmMaxDDsub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Best Day</div><div class="card-value positive" id="rmBest">&mdash;</div><div class="card-sub" id="rmBestSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Worst Day</div><div class="card-value negative" id="rmWorst">&mdash;</div><div class="card-sub" id="rmWorstSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Daily Win Rate</div><div class="card-value" id="rmWinRate">&mdash;</div><div class="card-sub" id="rmWinRateSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Profit Factor</div><div class="card-value" id="rmPF">&mdash;</div><div class="card-sub">gross profit / gross loss</div></div>
 </div>
 
 ${rollingRoiChart ? `<div class="chart-box"><h3>Rolling 30-Day PNL (BTC) — Performance Stability</h3>${rollingRoiChart}</div>` : ''}
@@ -695,8 +696,79 @@ function masterRecalc(){
 
   $('cIncomeCount').textContent=incCount+' days';
 
+  // === Risk Metrics (dynamic — recalculated for selected period) ===
+  const rm=computeRiskMetricsJs(filteredDaily,RAW.currentBtc,totalPnlBtc);
+  const sharpeColor=rm.sharpe>=1?'var(--green)':rm.sharpe>=0?'var(--accent)':'var(--red)';
+  $('rmSharpe').textContent=rm.sharpe.toFixed(2);
+  $('rmSharpe').style.color=sharpeColor;
+  $('rmMaxDD').textContent=rm.maxDrawdownPct.toFixed(2)+'%';
+  $('rmMaxDDsub').textContent=rm.maxDrawdownBtc.toFixed(8)+' BTC';
+  $('rmBest').textContent='+'+(rm.bestDayPct*100).toFixed(2)+'%';
+  $('rmBestSub').textContent=rm.bestDayDate+' ('+(rm.bestDay>=0?'+':'')+rm.bestDay.toFixed(6)+' BTC)';
+  $('rmWorst').textContent=(rm.worstDayPct*100).toFixed(2)+'%';
+  $('rmWorstSub').textContent=rm.worstDayDate+' ('+rm.worstDay.toFixed(6)+' BTC)';
+  $('rmWinRate').textContent=(rm.winRate*100).toFixed(1)+'%';
+  $('rmWinRate').style.color=rm.winRate>=0.5?'var(--green)':'var(--red)';
+  $('rmWinRateSub').textContent=rm.winDays+'/'+rm.totalDays+' profitable days';
+  $('rmPF').textContent=rm.profitFactor.toFixed(2);
+  $('rmPF').style.color=rm.profitFactor>=1?'var(--green)':'var(--red)';
+
   window._fc={currentBtc:RAW.currentBtc,avgMonthlyPnl:avgMoPnl,stdDev:stdDev,avgMonthlyRoi:avgMoRoi};
   recalcForecast();
+}
+
+function computeRiskMetricsJs(timeline,totalBtc,totalPnlBtc){
+  if(!timeline||timeline.length<2){
+    return {sharpe:0,maxDrawdownBtc:0,maxDrawdownPct:0,bestDay:0,worstDay:0,bestDayPct:0,worstDayPct:0,bestDayDate:'-',worstDayDate:'-',winRate:0,winDays:0,totalDays:timeline?timeline.length:0,profitFactor:0};
+  }
+  const startEquity=totalBtc-totalPnlBtc;
+  const dailyReturnPct=[];
+  let eq=startEquity;
+  for(let i=0;i<timeline.length;i++){
+    const pct=eq>0?timeline[i].b/eq:0;
+    dailyReturnPct.push(pct);
+    eq+=timeline[i].b;
+  }
+  const mean=dailyReturnPct.reduce((a,b)=>a+b,0)/dailyReturnPct.length;
+  const variance=dailyReturnPct.reduce((s,v)=>s+(v-mean)**2,0)/dailyReturnPct.length;
+  const stdDev=Math.sqrt(variance);
+  const sharpe=stdDev>0?(mean/stdDev)*Math.sqrt(365):0;
+
+  let peak=0,maxDDbtc=0,equity=startEquity;
+  for(const d of timeline){
+    equity+=d.b;
+    if(equity>peak)peak=equity;
+    const dd=peak-equity;
+    if(dd>maxDDbtc)maxDDbtc=dd;
+  }
+  const maxDDpct=peak>0?(maxDDbtc/peak)*100:0;
+
+  let bestDay=-Infinity,worstDay=Infinity,bestDayPct=-Infinity,worstDayPct=Infinity,bestIdx=0,worstIdx=0;
+  for(let i=0;i<timeline.length;i++){
+    if(timeline[i].b>bestDay){bestDay=timeline[i].b;bestDayPct=dailyReturnPct[i];bestIdx=i;}
+    if(timeline[i].b<worstDay){worstDay=timeline[i].b;worstDayPct=dailyReturnPct[i];worstIdx=i;}
+  }
+  const fmtD=ts=>new Date(ts).toLocaleDateString('ru-RU',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const dailyReturns=timeline.map(d=>d.b);
+  const winDays=dailyReturns.filter(r=>r>0).length;
+  const grossProfit=dailyReturns.filter(r=>r>0).reduce((s,v)=>s+v,0);
+  const grossLoss=Math.abs(dailyReturns.filter(r=>r<0).reduce((s,v)=>s+v,0));
+
+  return {
+    sharpe,
+    maxDrawdownBtc:maxDDbtc,
+    maxDrawdownPct:maxDDpct,
+    bestDay:bestDay===-Infinity?0:bestDay,
+    worstDay:worstDay===Infinity?0:worstDay,
+    bestDayPct:bestDayPct===-Infinity?0:bestDayPct,
+    worstDayPct:worstDayPct===Infinity?0:worstDayPct,
+    bestDayDate:fmtD(timeline[bestIdx].t),
+    worstDayDate:fmtD(timeline[worstIdx].t),
+    winRate:timeline.length>0?winDays/timeline.length:0,
+    winDays,
+    totalDays:timeline.length,
+    profitFactor:grossLoss>0?grossProfit/grossLoss:grossProfit>0?999:0
+  };
 }
 
 function recalcForecast(){
