@@ -93,7 +93,8 @@ function btcPriceAt(ts, dailyPrices) {
 
 async function getDailyBtcPrices() {
   const prices = [];
-  let s = START_TIME;
+  const PRICE_LOOKBACK = 730 * 86400000;
+  let s = NOW - PRICE_LOOKBACK;
   while (s < NOW) {
     try {
       const { data } = await client.klines('BTCUSDT', '1d', { startTime: s, endTime: Math.min(s + 100 * 86400000, NOW), limit: 100 });
@@ -106,14 +107,16 @@ async function getDailyBtcPrices() {
 }
 
 async function getDeposits() {
+  // Fetch ALL deposits since account creation (go back 2 years to capture everything)
+  const DEPOSIT_LOOKBACK = 730 * 86400000;
   const all = [];
-  let s = START_TIME;
+  let s = NOW - DEPOSIT_LOOKBACK;
   while (s < NOW) {
     const e = Math.min(s + 89 * 86400000, NOW);
     try {
       const { data } = await client.depositHistory({ startTime: s, endTime: e, limit: 1000, status: 1 });
       if (data?.length) all.push(...data);
-    } catch (err) { console.error('Deposit err:', err.message); }
+    } catch (err) { /* skip empty windows */ }
     s = e;
     await sleep(200);
   }
@@ -121,14 +124,15 @@ async function getDeposits() {
 }
 
 async function getWithdrawals() {
+  const WITHDRAW_LOOKBACK = 730 * 86400000;
   const all = [];
-  let s = START_TIME;
+  let s = NOW - WITHDRAW_LOOKBACK;
   while (s < NOW) {
     const e = Math.min(s + 89 * 86400000, NOW);
     try {
       const { data } = await client.withdrawHistory({ startTime: s, endTime: e, limit: 1000, status: 6 });
       if (data?.length) all.push(...data);
-    } catch (err) { console.error('Withdrawal err:', err.message); }
+    } catch (err) { /* skip empty windows */ }
     s = e;
     await sleep(200);
   }
@@ -136,17 +140,24 @@ async function getWithdrawals() {
 }
 
 async function getTransferHistory(type) {
+  const TRANSFER_LOOKBACK = 730 * 86400000;
   const all = [];
-  let current = 1;
-  while (true) {
-    try {
-      const { data } = await client.signRequest('GET', '/sapi/v1/asset/transfer', { type, size: 100, current, startTime: START_TIME });
-      if (!data.rows?.length) break;
-      all.push(...data.rows);
-      if (all.length >= (data.total || 0)) break;
-      current++;
-    } catch { break; }
-    await sleep(200);
+  let s = NOW - TRANSFER_LOOKBACK;
+  while (s < NOW) {
+    const e = Math.min(s + 29 * 86400000, NOW);
+    let current = 1;
+    while (true) {
+      try {
+        const { data } = await client.signRequest('GET', '/sapi/v1/asset/transfer', { type, size: 100, current, startTime: s, endTime: e });
+        if (!data.rows?.length) break;
+        all.push(...data.rows);
+        if (all.length >= (data.total || 0)) break;
+        current++;
+      } catch { break; }
+      await sleep(200);
+    }
+    s = e;
+    await sleep(100);
   }
   return all;
 }
@@ -461,13 +472,16 @@ ${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast
 <table><thead><tr><th>Month</th><th>PNL (BTC)</th><th>PNL (USDT)</th><th>Cumulative (BTC)</th></tr></thead>
 <tbody>${(() => { let cum = 0; return monthlyPnl.map(m => { cum += m.pnlBtc; const cls = m.pnlBtc >= 0 ? 'positive' : 'negative'; return '<tr><td>' + m.key + '</td><td class="' + cls + '">' + (m.pnlBtc >= 0 ? '+' : '') + m.pnlBtc.toFixed(8) + '</td><td class="' + cls + '">' + (m.pnlUsdt >= 0 ? '+' : '') + fmtU(m.pnlUsdt) + '</td><td>' + cum.toFixed(8) + '</td></tr>'; }).join(''); })()}</tbody></table>
 
-<h2 class="section-title">External Deposits</h2>
-${depositDetails.length > 0 ? `<table><thead><tr><th>Date</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>BTC Price</th></tr></thead>
-<tbody>${depositDetails.map(d => `<tr><td>${fmtDate(d.insertTime)}</td><td>${d.coin}</td><td>${parseFloat(d.amount).toFixed(8)}</td><td>${fmt(d.btcValue)}</td><td>${d.btcPriceAtTime ? '$' + fmtU(d.btcPriceAtTime) : '-'}</td></tr>`).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
+<h2 class="section-title">External Deposits (Money Sent to Binance from Outside)</h2>
+<p style="font-size:12px;color:var(--muted);margin-bottom:12px">These are real deposits of cryptocurrency sent from external wallets to your Binance account. Total: <strong>${deposits.length} deposits</strong> adding up to <strong>${fmt(totalDepositsBtc)} BTC</strong> (~$${fmtU(totalDepositsBtc * btcPrice)} at current price)</p>
+${depositDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>Asset</th><th>Amount</th><th>USD Value (at time)</th><th>BTC Value</th><th>BTC Price (at time)</th><th>Network</th></tr></thead>
+<tbody>${depositDetails.sort((a, b) => a.insertTime - b.insertTime).map((d, i) => { const amt = parseFloat(d.amount); const usdAtTime = d.coin === 'BTC' ? amt * d.btcPriceAtTime : (d.coin === 'USDT' || d.coin === 'USDC') ? amt : amt * (d.btcValue * d.btcPriceAtTime / amt || 0); return `<tr><td>${i + 1}</td><td>${fmtDate(d.insertTime)}</td><td>${d.coin}</td><td>${amt.toFixed(d.coin === 'BTC' ? 8 : 2)}</td><td>$${fmtU(usdAtTime)}</td><td>${fmt(d.btcValue)}</td><td>${d.btcPriceAtTime ? '$' + fmtU(d.btcPriceAtTime) : '-'}</td><td>${d.network || '-'}</td></tr>`; }).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
 
-<h2 class="section-title">Internal Transfers (Spot ↔ Futures)</h2>
+<h2 class="section-title">Internal Transfers Between Wallets (Spot Wallet ↔ Futures Wallet)</h2>
+<p style="font-size:12px;color:var(--muted);margin-bottom:12px">These are movements of funds between your Spot wallet and your USDⓈ-M Futures wallet inside Binance. They are NOT deposits or withdrawals — they just move money between your own wallets so the trading bot can use the funds.<br>
+<strong>${transfersToFutures.length} transfers into Futures</strong> (funding the bot) &nbsp;|&nbsp; <strong>${transfersFromFutures.length} transfers back to Spot</strong> (taking profits out of the bot)</p>
 <table><thead><tr><th>Date</th><th>Direction</th><th>Asset</th><th>Amount</th><th>BTC Value</th></tr></thead>
-<tbody>${[...transfersToFutures.map(t => ({ ...t, dir: 'Spot → Futures' })), ...transfersFromFutures.map(t => ({ ...t, dir: 'Futures → Spot' }))].sort((a, b) => b.timestamp - a.timestamp).map(t => { const bv = toBtc(t.asset, parseFloat(t.amount), priceMap); return '<tr><td>' + fmtDate(t.timestamp) + '</td><td>' + t.dir + '</td><td>' + t.asset + '</td><td>' + parseFloat(t.amount).toFixed(8) + '</td><td>' + fmt(bv) + '</td></tr>'; }).join('')}</tbody></table>
+<tbody>${[...transfersToFutures.map(t => ({ ...t, dir: '➡️ Into Futures (funding bot)' })), ...transfersFromFutures.map(t => ({ ...t, dir: '⬅️ Back to Spot (taking profits)' }))].sort((a, b) => b.timestamp - a.timestamp).map(t => { const bv = toBtc(t.asset, parseFloat(t.amount), priceMap); return '<tr><td>' + fmtDate(t.timestamp) + '</td><td>' + t.dir + '</td><td>' + t.asset + '</td><td>' + parseFloat(t.amount).toFixed(8) + '</td><td>' + fmt(bv) + '</td></tr>'; }).join('')}</tbody></table>
 
 <h2 class="section-title">Top Open Positions</h2>
 <table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>PNL (USDT)</th><th>PNL (BTC)</th></tr></thead>
@@ -1078,17 +1092,25 @@ async function main() {
   const dailyPrices = await getDailyBtcPrices();
   console.log(`   ${dailyPrices.length} candles`);
 
-  console.log('3. Deposits (6 months)...');
+  console.log('3. Deposits (full history)...');
   const deposits = await getDeposits();
   const depositDetails = [];
   let totalDepositsBtc = 0;
+  const stablecoins = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'DAI'];
   for (const d of deposits) {
     const amt = parseFloat(d.amount);
     const bp = btcPriceAt(d.insertTime, dailyPrices) || btcPrice;
-    const bv = d.coin === 'BTC' ? amt : amt / bp;
+    let bv;
+    if (d.coin === 'BTC') {
+      bv = amt;
+    } else if (stablecoins.includes(d.coin)) {
+      bv = amt / bp;
+    } else {
+      bv = toBtc(d.coin, amt, priceMap);
+    }
     depositDetails.push({ ...d, btcValue: bv, btcPriceAtTime: bp });
     totalDepositsBtc += bv;
-    console.log(`   ${d.coin}: ${amt} → ${bv.toFixed(8)} BTC`);
+    console.log(`   ${d.coin}: ${amt} → ${bv.toFixed(8)} BTC (BTC price: $${bp.toFixed(0)})`);
   }
 
   console.log('4. Withdrawals...');
