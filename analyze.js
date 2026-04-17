@@ -401,7 +401,7 @@ svg text{font-family:-apple-system,sans-serif}
 </style></head><body>
 <div class="container">
 <h1>myStoicTracker</h1>
-<p class="subtitle">Stoic AI Bot &mdash; Running since ${botStartDate} (${botDays} days) &mdash; BTC/USDT: $${fmtU(btcPrice)}</p>
+<p class="subtitle">Stoic AI Bot &mdash; BTC Accumulation Strategy &mdash; Running since ${botStartDate} (${botDays} days)</p>
 
 <div class="tabs">
 <nav class="tab-bar" role="tablist">
@@ -426,10 +426,10 @@ svg text{font-family:-apple-system,sans-serif}
 </div>
 
 <div class="grid">
-  <div class="card dyn-card"><div class="card-label">Unrealized PNL</div><div class="card-value ${totalUnrealizedBtc >= 0 ? 'positive' : 'negative'}">${totalUnrealizedBtc >= 0 ? '+' : ''}${fmt(totalUnrealizedBtc)} BTC</div><div class="card-sub">${fmtU(totalUnrealizedUsdt)} USDT &mdash; ${futuresPositions.length} open</div></div>
-  <div class="card dyn-card"><div class="card-label">Realized PNL (period)</div><div class="card-value" id="cRealizedPnl">&mdash;</div><div class="card-sub" id="cRealizedPnlSub">&mdash;</div></div>
-  <div class="card dyn-card"><div class="card-label">Funding + Comm (period)</div><div class="card-value" id="cFees">&mdash;</div><div class="card-sub" id="cFeesSub">&mdash;</div></div>
-  <div class="card dyn-card"><div class="card-label">Total Income (period)</div><div class="card-value" id="cTotalIncome">&mdash;</div><div class="card-sub" id="cTotalIncomeSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Unrealized PNL</div><div class="card-value ${totalUnrealizedBtc >= 0 ? 'positive' : 'negative'}">${totalUnrealizedBtc >= 0 ? '+' : ''}${fmt(totalUnrealizedBtc)} BTC</div><div class="card-sub">${futuresPositions.length} open positions</div></div>
+  <div class="card dyn-card"><div class="card-label">Realized PNL (BTC)</div><div class="card-value" id="cRealizedPnl">&mdash;</div><div class="card-sub" id="cRealizedPnlSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Fees Paid (BTC)</div><div class="card-value" id="cFees">&mdash;</div><div class="card-sub" id="cFeesSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Net Income (BTC)</div><div class="card-value" id="cTotalIncome">&mdash;</div><div class="card-sub" id="cTotalIncomeSub">&mdash;</div></div>
 </div>
 
 <div class="stat-row">
@@ -442,11 +442,11 @@ svg text{font-family:-apple-system,sans-serif}
 
 <!-- FORECAST CALCULATOR -->
 <div class="calc-section" id="calculator">
-<h2>Forecast Calculator</h2>
-<p style="color:var(--muted);font-size:12px;margin-bottom:16px" id="fcDescription">Based on data from the selected start date. Adjust period and BTC price to explore scenarios.</p>
+<h2>BTC Accumulation Forecast</h2>
+<p style="color:var(--muted);font-size:12px;margin-bottom:16px" id="fcDescription">Forecasts future BTC growth based on historical BTC performance. USD values shown for reference only.</p>
 <div class="calc-inputs">
   <div class="calc-input"><label>Forecast Period (months)</label><input type="number" id="fcMonths" value="12" min="1" max="120"></div>
-  <div class="calc-input"><label>Expected BTC Price (USD)</label><input type="number" id="fcBtcPrice" value="120000" min="1000" max="10000000" step="1000"></div>
+  <div class="calc-input"><label>BTC Price for USD reference</label><input type="number" id="fcBtcPrice" value="120000" min="1000" max="10000000" step="1000"></div>
 </div>
 <div class="scenarios" id="scenarios"></div>
 </div>
@@ -473,24 +473,24 @@ ${monthlyChart ? `<div class="chart-box"><h3>Monthly PNL (BTC) with Trend Line</
 ${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast</h3>${trendChart}</div>` : ''}
 
 <h2 class="section-title">Monthly PNL Breakdown</h2>
-<table><thead><tr><th>Month</th><th>PNL (BTC)</th><th>PNL (USDT)</th><th>Cumulative (BTC)</th></tr></thead>
-<tbody>${(() => { let cum = 0; return monthlyPnl.map(m => { cum += m.pnlBtc; const cls = m.pnlBtc >= 0 ? 'positive' : 'negative'; return '<tr><td>' + m.key + '</td><td class="' + cls + '">' + (m.pnlBtc >= 0 ? '+' : '') + m.pnlBtc.toFixed(8) + '</td><td class="' + cls + '">' + (m.pnlUsdt >= 0 ? '+' : '') + fmtU(m.pnlUsdt) + '</td><td>' + cum.toFixed(8) + '</td></tr>'; }).join(''); })()}</tbody></table>
+<table><thead><tr><th>Month</th><th>PNL (BTC)</th><th>Cumulative (BTC)</th><th>Monthly ROI</th></tr></thead>
+<tbody>${(() => { let cum = 0; return monthlyPnl.map(m => { cum += m.pnlBtc; const cls = m.pnlBtc >= 0 ? 'positive' : 'negative'; const moRoi = totalCapitalDeployedBtc > 0 ? (m.pnlBtc / totalCapitalDeployedBtc * 100).toFixed(2) + '%' : 'N/A'; return '<tr><td>' + m.key + '</td><td class="' + cls + '">' + (m.pnlBtc >= 0 ? '+' : '') + m.pnlBtc.toFixed(8) + '</td><td>' + cum.toFixed(8) + '</td><td class="' + cls + '">' + moRoi + '</td></tr>'; }).join(''); })()}</tbody></table>
 
 <h2 class="section-title">Capital Timeline</h2>
 <div class="card" style="font-size:13px;line-height:1.8;margin-bottom:20px">
 <p><strong>Bot start date:</strong> ${botStartDate} (${botDays} days ago)</p>
-<p><strong>Initial capital (before bot):</strong> ${fmt(initialCapitalBtc)} BTC (~$${fmtU(initialCapitalBtc * btcPrice)}) &mdash; from ${depositsBeforeBot.length} deposits minus ${withdrawalsBeforeBot.length} withdrawals</p>
+<p><strong>Initial capital (before bot):</strong> ${fmt(initialCapitalBtc)} BTC &mdash; from ${depositsBeforeBot.length} deposits minus ${withdrawalsBeforeBot.length} withdrawals</p>
 <p><strong>Added during bot operation:</strong> +${fmt(postBotDepositsBtc)} BTC from ${depositsAfterBot.length} deposits</p>
 <p><strong>Withdrawn during bot operation:</strong> -${fmt(postBotWithdrawalsBtc)} BTC from ${withdrawalsAfterBot.length} withdrawals</p>
-<p><strong>Total capital deployed:</strong> ${fmt(totalCapitalDeployedBtc)} BTC (~$${fmtU(totalCapitalDeployedBtc * btcPrice)})</p>
-<p><strong>Current portfolio:</strong> ${fmt(totalBalanceBtc)} BTC (~$${fmtU(totalBalanceBtc * btcPrice)})</p>
-<p><strong>Robot P&L:</strong> <span style="color:${roiColor}">${pnlSign}${fmt(robotPnlBtc)} BTC (${pnlSign}$${fmtU(robotPnlBtc * btcPrice)})</span> &mdash; ROI: <span style="color:${roiColor}">${(roiBtc * 100).toFixed(2)}%</span></p>
+<p><strong>Total capital deployed:</strong> ${fmt(totalCapitalDeployedBtc)} BTC</p>
+<p><strong>Current portfolio:</strong> ${fmt(totalBalanceBtc)} BTC</p>
+<p><strong>BTC gained by bot:</strong> <span style="color:${roiColor}">${pnlSign}${fmt(robotPnlBtc)} BTC</span> &mdash; ROI: <span style="color:${roiColor}">${(roiBtc * 100).toFixed(2)}%</span> growth in BTC</p>
 </div>
 
 <h2 class="section-title">All Deposits (Money Sent to Binance)</h2>
 <p style="font-size:12px;color:var(--muted);margin-bottom:12px">${depositsBeforeBot.length} deposits before bot start + ${depositsAfterBot.length} deposits during bot operation = <strong>${deposits.length} total</strong>, adding up to <strong>${fmt(totalDepositsBtc)} BTC</strong></p>
-${depositDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>Period</th><th>Asset</th><th>Amount</th><th>USD Value (at time)</th><th>BTC Value</th><th>BTC Price</th><th>Network</th></tr></thead>
-<tbody>${depositDetails.sort((a, b) => a.insertTime - b.insertTime).map((d, i) => { const amt = parseFloat(d.amount); const usdAtTime = d.coin === 'BTC' ? amt * d.btcPriceAtTime : (d.coin === 'USDT' || d.coin === 'USDC') ? amt : amt * (d.btcValue * d.btcPriceAtTime / amt || 0); const period = d.insertTime >= botStartTime ? 'During bot' : 'Before bot'; const cls = d.insertTime >= botStartTime ? 'style="background:rgba(0,200,83,0.08)"' : ''; return `<tr ${cls}><td>${i + 1}</td><td>${fmtDate(d.insertTime)}</td><td>${period}</td><td>${d.coin}</td><td>${amt.toFixed(d.coin === 'BTC' ? 8 : 2)}</td><td>$${fmtU(usdAtTime)}</td><td>${fmt(d.btcValue)}</td><td>${d.btcPriceAtTime ? '$' + fmtU(d.btcPriceAtTime) : '-'}</td><td>${d.network || '-'}</td></tr>`; }).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
+${depositDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>Period</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>Network</th></tr></thead>
+<tbody>${depositDetails.sort((a, b) => a.insertTime - b.insertTime).map((d, i) => { const amt = parseFloat(d.amount); const period = d.insertTime >= botStartTime ? 'During bot' : 'Before bot'; const cls = d.insertTime >= botStartTime ? 'style="background:rgba(0,200,83,0.08)"' : ''; return `<tr ${cls}><td>${i + 1}</td><td>${fmtDate(d.insertTime)}</td><td>${period}</td><td>${d.coin}</td><td>${amt.toFixed(d.coin === 'BTC' ? 8 : 2)}</td><td>${fmt(d.btcValue)}</td><td>${d.network || '-'}</td></tr>`; }).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
 
 <h2 class="section-title">All Withdrawals (Money Taken Out of Binance)</h2>
 <p style="font-size:12px;color:var(--muted);margin-bottom:12px">${withdrawalsBeforeBot.length} withdrawals before bot start + ${withdrawalsAfterBot.length} withdrawals during bot operation = <strong>${withdrawals.length} total</strong>, totaling <strong>${fmt(totalWithdrawalsBtc)} BTC</strong></p>
@@ -504,27 +504,28 @@ ${withdrawalDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>P
 <tbody>${[...transfersToFutures.map(t => ({ ...t, dir: '➡️ Into Futures (funding bot)' })), ...transfersFromFutures.map(t => ({ ...t, dir: '⬅️ Back to Spot (taking profits)' }))].sort((a, b) => b.timestamp - a.timestamp).map(t => { const bv = toBtc(t.asset, parseFloat(t.amount), priceMap); return '<tr><td>' + fmtDate(t.timestamp) + '</td><td>' + t.dir + '</td><td>' + t.asset + '</td><td>' + parseFloat(t.amount).toFixed(8) + '</td><td>' + fmt(bv) + '</td></tr>'; }).join('')}</tbody></table>
 
 <h2 class="section-title">Top Open Positions</h2>
-<table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>PNL (USDT)</th><th>PNL (BTC)</th></tr></thead>
-<tbody>${topPositions.map(p => { const pb = btcPrice ? p.pnlUsdt / btcPrice : 0; const sd = p.qty > 0 ? 'LONG' : 'SHORT'; const sc = p.qty > 0 ? 'positive' : 'negative'; const pc = p.pnlUsdt >= 0 ? 'positive' : 'negative'; return '<tr><td><strong>' + p.symbol + '</strong></td><td class="' + sc + '">' + sd + '</td><td>' + Math.abs(p.qty).toFixed(4) + '</td><td>' + p.entry.toFixed(6) + '</td><td class="' + pc + '">' + (p.pnlUsdt >= 0 ? '+' : '') + fmtU(p.pnlUsdt) + '</td><td class="' + pc + '">' + (pb >= 0 ? '+' : '') + fmtS(pb) + '</td></tr>'; }).join('')}</tbody></table>
+<table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>PNL (BTC)</th></tr></thead>
+<tbody>${topPositions.map(p => { const pb = btcPrice ? p.pnlUsdt / btcPrice : 0; const sd = p.qty > 0 ? 'LONG' : 'SHORT'; const sc = p.qty > 0 ? 'positive' : 'negative'; const pc = pb >= 0 ? 'positive' : 'negative'; return '<tr><td><strong>' + p.symbol + '</strong></td><td class="' + sc + '">' + sd + '</td><td>' + Math.abs(p.qty).toFixed(4) + '</td><td>' + p.entry.toFixed(6) + '</td><td class="' + pc + '">' + (pb >= 0 ? '+' : '') + fmtS(pb) + '</td></tr>'; }).join('')}</tbody></table>
 
 <h2 class="section-title">Methodology</h2>
 <div class="card" style="font-size:12px;line-height:1.8">
-<p><strong>Portfolio Value (BTC)</strong> = Futures wallet balance + Unrealized PNL, converted to BTC.</p>
-<p><strong>Robot P&L</strong> = Current portfolio (BTC) − External deposits (BTC). Isolates bot performance from capital injections.</p>
-<p><strong>ROI (BTC)</strong> = Robot P&L / External deposits. Denominated in BTC, not USD.</p>
-<p><strong>Equity Curve</strong> = Starting capital grown by daily compound returns. Shows realistic growth trajectory vs. a flat "no trading" baseline.</p>
-<p><strong>Drawdown</strong> = Decline from the equity curve peak at each point. Max drawdown = largest peak-to-trough loss.</p>
-<p><strong>Rolling 30-Day PNL</strong> = Sum of daily PNL over a sliding 30-day window. Reveals performance stability and seasonality.</p>
-<p><strong>Sharpe Ratio</strong> = (avg daily return / stddev of daily returns) × √365. Values above 1.0 indicate good risk-adjusted returns.</p>
-<p><strong>Profit Factor</strong> = Total gross profits / Total gross losses. Above 1.0 means profits exceed losses.</p>
-<p><strong>Forecast (compound)</strong> = Portfolio × (1 + monthly ROI)^months. Uses compound growth where profits reinvest proportionally. Simple (linear) shown for comparison.</p>
+<p><strong>Strategy:</strong> The bot trades to accumulate more BTC, not USD. All metrics are denominated in BTC. USD price changes do not affect performance measurement.</p>
+<p><strong>Portfolio Value</strong> = Futures wallet balance + Unrealized PNL, measured in BTC.</p>
+<p><strong>Robot P&L</strong> = Current BTC portfolio − Total BTC capital deployed. Shows how many BTC the bot has earned.</p>
+<p><strong>ROI</strong> = Robot P&L / Total capital deployed. Measures BTC growth percentage.</p>
+<p><strong>Equity Curve</strong> = Starting capital grown by daily BTC compound returns. Shows BTC accumulation trajectory.</p>
+<p><strong>Drawdown</strong> = Decline from the BTC equity peak. Max drawdown = largest peak-to-trough BTC loss.</p>
+<p><strong>Rolling 30-Day PNL</strong> = BTC earned over a sliding 30-day window. Reveals performance stability.</p>
+<p><strong>Sharpe Ratio</strong> = (avg daily BTC return / stddev) × √365. Above 1.0 = good risk-adjusted BTC returns.</p>
+<p><strong>Profit Factor</strong> = Gross BTC profits / Gross BTC losses. Above 1.0 means bot earns more BTC than it loses.</p>
+<p><strong>Forecast</strong> = Portfolio × (1 + monthly BTC ROI)^months. Projects future BTC accumulation based on historical BTC performance.</p>
 </div>
 
 <h2 class="section-title">Data integrity &amp; forecast standards (CFI-aligned)</h2>
 <div class="card" style="font-size:12px;line-height:1.8">
 <p><strong>Source of data.</strong> All figures are taken directly from Binance API (Spot and Futures): account balance, income history, deposits, withdrawals, transfers. No third-party or estimated data; snapshot and time series are from your linked API key.</p>
 <p><strong>Assumptions.</strong> Forecast uses historical average monthly P&L and standard deviation; trend uses simple linear regression on monthly P&L. Three scenarios (optimistic / average / pessimistic) follow scenario analysis practice: base case ± one standard deviation. Compound projection assumes reinvestment of returns; linear projection is shown for comparison only.</p>
-<p><strong>Limitations.</strong> Past performance does not guarantee future results. Forecast is extrapolation of a short history (${monthlyPnl.length} months) and does not model market regimes, volatility shifts, or funding-rate changes. All values are in BTC; USD equivalents use the spot price at report generation time.</p>
+<p><strong>Limitations.</strong> Past performance does not guarantee future results. Forecast extrapolates a short history (${monthlyPnl.length} months) and does not model market regimes, volatility shifts, or funding-rate changes. All values are in BTC — the bot's goal is BTC accumulation, not USD profit.</p>
 <p><strong>Disclosure.</strong> This is an analytical report; it is not investment advice. For wealth-management decisions, consider professional advice and your risk tolerance.</p>
 </div>
 
@@ -561,8 +562,8 @@ ${(() => {
 <div id="tab-growth" class="tab-panel" role="tabpanel">
 <div class="growth-hero">
 <div class="day-label" id="growthDayLabel">Day 0</div>
-<div class="equity-btc" id="growthEquityBtc">0.00000000</div>
-<div class="equity-usd" id="growthEquityUsd">$0.00</div>
+<div class="equity-btc" id="growthEquityBtc">0.00000000 BTC</div>
+<div class="equity-usd" id="growthEquityUsd" style="font-size:14px;color:var(--muted)"></div>
 <div class="growth-timeline" id="growthTimeline"><div class="growth-fill" id="growthFill" style="width:0%"></div></div>
 <div class="growth-controls">
 <button type="button" class="tab-btn secondary" id="growthPlay">Play</button>
@@ -643,18 +644,18 @@ function masterRecalc(){
 
   $('cPortfolio').textContent=fmt8(RAW.currentBtc)+' BTC';
   $('cPortfolio').style.color='var(--text)';
-  $('cPortfolioSub').textContent=fmtU(RAW.currentBtc*RAW.btcPrice);
+  $('cPortfolioSub').textContent='started with '+fmt8(RAW.totalCapitalDeployedBtc)+' BTC';
 
   $('cDeposits').textContent='+'+fmt8(RAW.totalCapitalDeployedBtc)+' BTC';
-  $('cDepositsSub').textContent='initial: '+fmt8(RAW.initialCapitalBtc)+' + '+RAW.postBotDepositsCount+' deposits during bot';
+  $('cDepositsSub').textContent='initial '+fmt8(RAW.initialCapitalBtc)+' + '+RAW.postBotDepositsCount+' deposits (+'+fmt8(RAW.postBotDepositsBtc)+')';
 
   $('cPnl').textContent=(robotPnl>=0?'+':'')+fmt8(robotPnl)+' BTC';
   $('cPnl').style.color=clr(robotPnl);
-  $('cPnlSub').textContent=(robotPnl>=0?'+':'')+fmtU(robotPnl*RAW.btcPrice);
+  $('cPnlSub').textContent='net BTC gained by the bot';
 
   $('cRoi').textContent=fmtPct(roi);
   $('cRoi').style.color=clr(roi);
-  $('cRoiSub').textContent='over '+RAW.botDays+' days (since bot start)';
+  $('cRoiSub').textContent='BTC growth over '+RAW.botDays+' days';
 
   $('cMonthlyRoi').textContent=fmtPct(avgMoRoi);
   $('cMonthlyRoi').style.color=clr(avgMoRoi);
@@ -662,15 +663,15 @@ function masterRecalc(){
 
   $('cRealizedPnl').textContent=(totalPnlBtc>=0?'+':'')+fmt8(totalPnlBtc)+' BTC';
   $('cRealizedPnl').style.color=clr(totalPnlBtc);
-  $('cRealizedPnlSub').textContent='realized + funding + commissions';
+  $('cRealizedPnlSub').textContent=incCount+' days of trading data';
 
   $('cFees').textContent=fmt8(totalPnlBtc)+' BTC net';
   $('cFees').style.color='var(--muted)';
-  $('cFeesSub').textContent='all income types combined';
+  $('cFeesSub').textContent='included in realized PNL';
 
   $('cTotalIncome').textContent=(totalPnlBtc>=0?'+':'')+fmt8(totalPnlBtc)+' BTC';
   $('cTotalIncome').style.color=clr(totalPnlBtc);
-  $('cTotalIncomeSub').textContent=fmtU(totalPnlBtc*RAW.btcPrice)+' at current price';
+  $('cTotalIncomeSub').textContent='total BTC earned by bot';
 
   $('cIncomeCount').textContent=incCount+' days';
 
@@ -699,19 +700,17 @@ function recalcForecast(){
     const linUsd=linBtc*btcP;const linPnlBtc=linBtc-fc.currentBtc;
     const c=sc.cls;const color=c==='optimistic'?'#00c853':c==='average'?'#58a6ff':'#ff1744';
     html+='<div class="scenario '+c+'"><h4>'+sc.name+'</h4>'+
-      '<div class="sc-row"><span class="sc-label">Monthly ROI</span><span class="sc-val" style="color:'+color+'">'+(sc.compRoi*100).toFixed(2)+'%</span></div>'+
-      '<div class="sc-row"><span class="sc-label">Total ROI ('+months+'mo)</span><span class="sc-val" style="color:'+color+'">'+(compRoi*100).toFixed(2)+'%</span></div>'+
-      '<div class="sc-row"><span class="sc-label">Annualized ROI</span><span class="sc-val">'+(annualRoi*100).toFixed(2)+'%</span></div>'+
+      '<div class="sc-row"><span class="sc-label">Monthly BTC ROI</span><span class="sc-val" style="color:'+color+'">'+(sc.compRoi*100).toFixed(2)+'%</span></div>'+
+      '<div class="sc-row"><span class="sc-label">Total BTC ROI ('+months+'mo)</span><span class="sc-val" style="color:'+color+'">'+(compRoi*100).toFixed(2)+'%</span></div>'+
+      '<div class="sc-row"><span class="sc-label">Annualized BTC ROI</span><span class="sc-val">'+(annualRoi*100).toFixed(2)+'%</span></div>'+
       '<div style="border-top:1px solid var(--border);margin:10px 0;padding-top:10px">'+
-      '<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Compound (realistic)</div>'+
-      '<div class="sc-row"><span class="sc-label">P&L</span><span class="sc-val" style="color:'+color+'">'+(compPnlBtc>=0?'+':'')+compPnlBtc.toFixed(6)+' BTC</span></div>'+
+      '<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Compound BTC Growth</div>'+
+      '<div class="sc-row"><span class="sc-label">BTC Earned</span><span class="sc-val" style="color:'+color+'">'+(compPnlBtc>=0?'+':'')+compPnlBtc.toFixed(6)+' BTC</span></div>'+
       '<div class="sc-big" style="color:'+color+'">'+compBtc.toFixed(6)+' BTC</div>'+
-      '<div class="sc-row"><span class="sc-label">USD Value</span><span class="sc-val" style="color:'+color+'">$'+compUsd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>'+
-      '<div class="sc-row"><span class="sc-label">P&L USD</span><span class="sc-val" style="color:'+color+'">'+(compPnlUsd>=0?'+$':'-$')+Math.abs(compPnlUsd).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>'+
+      '<div class="sc-row"><span class="sc-label">USD ref.</span><span class="sc-val" style="color:var(--muted)">~$'+compUsd.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+'</span></div>'+
       '<div style="border-top:1px solid var(--border);margin:10px 0;padding-top:8px">'+
-      '<div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Simple (no compound)</div>'+
-      '<div class="sc-row"><span class="sc-label">Result</span><span class="sc-val" style="color:var(--muted)">'+linBtc.toFixed(6)+' BTC</span></div>'+
-      '<div class="sc-row"><span class="sc-label">USD</span><span class="sc-val" style="color:var(--muted)">$'+linUsd.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>'+
+      '<div style="font-size:10px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px">Without compounding</div>'+
+      '<div class="sc-row"><span class="sc-label">Linear result</span><span class="sc-val" style="color:var(--muted)">'+linBtc.toFixed(6)+' BTC</span></div>'+
       '<div class="sc-row"><span class="sc-label">Compound bonus</span><span class="sc-val" style="color:var(--gold)">'+(compPnlBtc-linPnlBtc>=0?'+':'')+(compPnlBtc-linPnlBtc).toFixed(6)+' BTC</span></div>'+
       '</div></div></div>';
   }
@@ -760,8 +759,9 @@ masterRecalc();
   }
   function updateUI(dayIdx){
     const e=equityByDay[dayIdx];const d=daily[Math.min(dayIdx,daily.length-1)];
+    const gained=e-equityByDay[0];const gainPct=equityByDay[0]>0?(gained/equityByDay[0]*100).toFixed(2):0;
     $('growthEquityBtc').textContent=e.toFixed(8)+' BTC';
-    $('growthEquityUsd').textContent='$'+(e*RAW.btcPrice).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+    $('growthEquityUsd').textContent=(gained>=0?'+':'')+gained.toFixed(8)+' BTC ('+gainPct+'%)';
     $('growthDayLabel').textContent=fmtD(d.t)+' — Day '+(dayIdx+1)+' of '+(N+1);
     $('growthFill').style.width=(100*dayIdx/N)+'%';
     $('growthSlider').value=dayIdx;
@@ -789,7 +789,7 @@ masterRecalc();
 })();
 </script>
 
-<div class="footer">Generated by myStoicTracker &mdash; ${new Date().toLocaleString('ru-RU')} &mdash; All values in BTC &mdash; <a href="https://github.com/kitkin/myStoicTracker" style="color:var(--accent)">GitHub</a></div>
+<div class="footer">Generated by myStoicTracker &mdash; ${new Date().toLocaleString('ru-RU')} &mdash; BTC Accumulation Strategy &mdash; All metrics denominated in BTC &mdash; <a href="https://github.com/kitkin/myStoicTracker" style="color:var(--accent)">GitHub</a></div>
 </div></body></html>`;
 }
 
