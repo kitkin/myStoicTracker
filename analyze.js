@@ -419,8 +419,9 @@ svg text{font-family:-apple-system,sans-serif}
 
 <div class="grid" id="summaryCards">
   <div class="card dyn-card"><div class="card-label">Total Portfolio</div><div class="card-value" id="cPortfolio">&mdash;</div><div class="card-sub" id="cPortfolioSub">&mdash;</div></div>
-  <div class="card dyn-card"><div class="card-label">Capital Deployed</div><div class="card-value positive" id="cDeposits">&mdash;</div><div class="card-sub" id="cDepositsSub">&mdash;</div></div>
-  <div class="card dyn-card"><div class="card-label">Robot P&L (net)</div><div class="card-value" id="cPnl">&mdash;</div><div class="card-sub" id="cPnlSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">External Deposits (BTC)</div><div class="card-value positive" id="cDeposits">&mdash;</div><div class="card-sub" id="cDepositsSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">External Deposits (USDT)</div><div class="card-value" id="cDepositsUsdt" style="color:var(--gold)">&mdash;</div><div class="card-sub" id="cDepositsUsdtSub">&mdash;</div></div>
+  <div class="card dyn-card"><div class="card-label">Robot P&L (BTC)</div><div class="card-value" id="cPnl">&mdash;</div><div class="card-sub" id="cPnlSub">&mdash;</div></div>
   <div class="card dyn-card"><div class="card-label">ROI in BTC</div><div class="card-value" id="cRoi">&mdash;</div><div class="card-sub" id="cRoiSub">&mdash;</div></div>
   <div class="card dyn-card"><div class="card-label">Monthly ROI (avg)</div><div class="card-value" id="cMonthlyRoi">&mdash;</div><div class="card-sub" id="cTrend">&mdash;</div></div>
 </div>
@@ -479,23 +480,23 @@ ${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast
 <h2 class="section-title">Capital Timeline</h2>
 <div class="card" style="font-size:13px;line-height:1.8;margin-bottom:20px">
 <p><strong>Bot start date:</strong> ${botStartDate} (${botDays} days ago)</p>
-<p><strong>Initial capital (before bot):</strong> ${fmt(initialCapitalBtc)} BTC &mdash; from ${depositsBeforeBot.length} deposits minus ${withdrawalsBeforeBot.length} withdrawals</p>
-<p><strong>Added during bot operation:</strong> +${fmt(postBotDepositsBtc)} BTC from ${depositsAfterBot.length} deposits</p>
-<p><strong>Withdrawn during bot operation:</strong> -${fmt(postBotWithdrawalsBtc)} BTC from ${withdrawalsAfterBot.length} withdrawals</p>
-<p><strong>Total capital deployed:</strong> ${fmt(totalCapitalDeployedBtc)} BTC</p>
+<p><strong>Initial capital (before bot):</strong> ${fmt(initialCapitalBtc)} BTC ($${fmtU((() => { const pd = depositDetails.filter(d => d.insertTime < botStartTime).reduce((s,d) => s + d.usdtValue, 0); const pw = withdrawalDetails.filter(w => w.timestamp < botStartTime).reduce((s,w) => s + w.usdtValue, 0); return pd - pw; })())}) &mdash; from ${depositsBeforeBot.length} deposits minus ${withdrawalsBeforeBot.length} withdrawals</p>
+<p><strong>Added during bot operation:</strong> +${fmt(postBotDepositsBtc)} BTC ($${fmtU(depositsAfterBot.reduce((s,d) => s + d.usdtValue, 0))}) from ${depositsAfterBot.length} deposits</p>
+<p><strong>Withdrawn during bot operation:</strong> -${fmt(postBotWithdrawalsBtc)} BTC ($${fmtU(withdrawalsAfterBot.reduce((s,w) => s + w.usdtValue, 0))}) from ${withdrawalsAfterBot.length} withdrawals</p>
+<p><strong>Total capital deployed:</strong> ${fmt(totalCapitalDeployedBtc)} BTC ($${fmtU((() => { const td = depositDetails.reduce((s,d) => s + d.usdtValue, 0); const tw = withdrawalDetails.reduce((s,w) => s + w.usdtValue, 0); return td - tw; })())})</p>
 <p><strong>Current portfolio:</strong> ${fmt(totalBalanceBtc)} BTC</p>
 <p><strong>BTC gained by bot:</strong> <span style="color:${roiColor}">${pnlSign}${fmt(robotPnlBtc)} BTC</span> &mdash; ROI: <span style="color:${roiColor}">${(roiBtc * 100).toFixed(2)}%</span> growth in BTC</p>
 </div>
 
 <h2 class="section-title">All Deposits (Money Sent to Binance)</h2>
 <p style="font-size:12px;color:var(--muted);margin-bottom:12px">${depositsBeforeBot.length} deposits before bot start + ${depositsAfterBot.length} deposits during bot operation = <strong>${deposits.length} total</strong>, adding up to <strong>${fmt(totalDepositsBtc)} BTC</strong></p>
-${depositDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>Period</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>Network</th></tr></thead>
-<tbody>${depositDetails.sort((a, b) => a.insertTime - b.insertTime).map((d, i) => { const amt = parseFloat(d.amount); const period = d.insertTime >= botStartTime ? 'During bot' : 'Before bot'; const cls = d.insertTime >= botStartTime ? 'style="background:rgba(0,200,83,0.08)"' : ''; return `<tr ${cls}><td>${i + 1}</td><td>${fmtDate(d.insertTime)}</td><td>${period}</td><td>${d.coin}</td><td>${amt.toFixed(d.coin === 'BTC' ? 8 : 2)}</td><td>${fmt(d.btcValue)}</td><td>${d.network || '-'}</td></tr>`; }).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
+${depositDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>Period</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>USD at time</th><th>Network</th></tr></thead>
+<tbody>${depositDetails.sort((a, b) => a.insertTime - b.insertTime).map((d, i) => { const amt = parseFloat(d.amount); const period = d.insertTime >= botStartTime ? 'During bot' : 'Before bot'; const cls = d.insertTime >= botStartTime ? 'style="background:rgba(0,200,83,0.08)"' : ''; return `<tr ${cls}><td>${i + 1}</td><td>${fmtDate(d.insertTime)}</td><td>${period}</td><td>${d.coin}</td><td>${amt.toFixed(d.coin === 'BTC' ? 8 : 2)}</td><td>${fmt(d.btcValue)}</td><td>$${fmtU(d.usdtValue)}</td><td>${d.network || '-'}</td></tr>`; }).join('')}</tbody></table>` : '<p style="color:var(--muted)">No deposits</p>'}
 
 <h2 class="section-title">All Withdrawals (Money Taken Out of Binance)</h2>
 <p style="font-size:12px;color:var(--muted);margin-bottom:12px">${withdrawalsBeforeBot.length} withdrawals before bot start + ${withdrawalsAfterBot.length} withdrawals during bot operation = <strong>${withdrawals.length} total</strong>, totaling <strong>${fmt(totalWithdrawalsBtc)} BTC</strong></p>
-${withdrawalDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>Period</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>BTC Price</th><th>Network</th></tr></thead>
-<tbody>${withdrawalDetails.sort((a, b) => a.timestamp - b.timestamp).map((w, i) => { const amt = parseFloat(w.amount); const period = w.timestamp >= botStartTime ? 'During bot' : 'Before bot'; const cls = w.timestamp >= botStartTime ? 'style="background:rgba(255,23,68,0.08)"' : ''; return `<tr ${cls}><td>${i + 1}</td><td>${fmtDate(w.timestamp)}</td><td>${period}</td><td>${w.coin}</td><td>${amt.toFixed(w.coin === 'BTC' ? 8 : 2)}</td><td>${fmt(w.btcValue)}</td><td>${w.btcPriceAtTime ? '$' + fmtU(w.btcPriceAtTime) : '-'}</td><td>${w.network || '-'}</td></tr>`; }).join('')}</tbody></table>` : '<p style="color:var(--muted)">No withdrawals</p>'}
+${withdrawalDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>Period</th><th>Asset</th><th>Amount</th><th>BTC Value</th><th>USD at time</th><th>Network</th></tr></thead>
+<tbody>${withdrawalDetails.sort((a, b) => a.timestamp - b.timestamp).map((w, i) => { const amt = parseFloat(w.amount); const period = w.timestamp >= botStartTime ? 'During bot' : 'Before bot'; const cls = w.timestamp >= botStartTime ? 'style="background:rgba(255,23,68,0.08)"' : ''; return `<tr ${cls}><td>${i + 1}</td><td>${fmtDate(w.timestamp)}</td><td>${period}</td><td>${w.coin}</td><td>${amt.toFixed(w.coin === 'BTC' ? 8 : 2)}</td><td>${fmt(w.btcValue)}</td><td>$${fmtU(w.usdtValue)}</td><td>${w.network || '-'}</td></tr>`; }).join('')}</tbody></table>` : '<p style="color:var(--muted)">No withdrawals</p>'}
 
 <h2 class="section-title">Internal Transfers Between Wallets (Spot Wallet ↔ Futures Wallet)</h2>
 <p style="font-size:12px;color:var(--muted);margin-bottom:12px">These are movements of funds between your Spot wallet and your USDⓈ-M Futures wallet inside Binance. They are NOT deposits or withdrawals — they just move money between your own wallets so the trading bot can use the funds.<br>
@@ -581,21 +582,9 @@ const RAW = {
   btcPrice: ${btcPrice},
   botStartTime: ${botStartTime},
   botDays: ${botDays},
-  initialCapitalBtc: ${initialCapitalBtc.toFixed(10)},
-  totalDepositsBtc: ${totalDepositsBtc.toFixed(10)},
-  totalWithdrawalsBtc: ${totalWithdrawalsBtc.toFixed(10)},
-  totalDepositsCount: ${deposits.length},
-  totalWithdrawalsCount: ${withdrawals.length},
-  postBotDepositsCount: ${depositsAfterBot.length},
-  postBotWithdrawalsCount: ${withdrawalsAfterBot.length},
-  postBotDepositsBtc: ${postBotDepositsBtc.toFixed(10)},
-  postBotWithdrawalsBtc: ${postBotWithdrawalsBtc.toFixed(10)},
-  totalCapitalDeployedBtc: ${totalCapitalDeployedBtc.toFixed(10)},
-  netExternalFlowBtc: ${netExternalFlowBtc.toFixed(10)},
-  robotPnlBtc: ${robotPnlBtc.toFixed(10)},
-  roiBtc: ${roiBtc.toFixed(10)},
   dailyPnl: [${incomeTimeline.map(d => `{t:${d.time},b:${d.dailyBtc.toFixed(12)}}`).join(',')}],
-  deposits: [${depositDetails.map(d => `{t:${d.insertTime},btc:${d.btcValue.toFixed(12)},coin:"${d.coin}",amt:${parseFloat(d.amount).toFixed(12)}}`).join(',')}],
+  deposits: [${depositDetails.map(d => `{t:${d.insertTime},btc:${d.btcValue.toFixed(12)},usdt:${d.usdtValue.toFixed(4)},coin:"${d.coin}",amt:${parseFloat(d.amount).toFixed(12)}}`).join(',')}],
+  withdrawals: [${withdrawalDetails.map(w => `{t:${w.timestamp},btc:${w.btcValue.toFixed(12)},usdt:${w.usdtValue.toFixed(4)},coin:"${w.coin}",amt:${parseFloat(w.amount).toFixed(12)}}`).join(',')}],
   monthlyPnl: [${monthlyPnl.map(m => `{k:"${m.key}",t:${m.time},b:${m.pnlBtc.toFixed(12)},u:${m.pnlUsdt.toFixed(4)}}`).join(',')}]
 };
 const $=id=>document.getElementById(id);
@@ -620,42 +609,59 @@ function masterRecalc(){
 
   const filteredDaily=RAW.dailyPnl.filter(d=>d.t>=startMs);
   const totalPnlBtc=filteredDaily.reduce((s,d)=>s+d.b,0);
+  let incCount=filteredDaily.length;
 
-  const filteredDeposits=RAW.deposits.filter(d=>d.t>=startMs);
-  const filteredDepBtc=filteredDeposits.reduce((s,d)=>s+d.btc,0);
+  const depsBefore=RAW.deposits.filter(d=>d.t<startMs);
+  const depsAfter=RAW.deposits.filter(d=>d.t>=startMs);
+  const wdBefore=RAW.withdrawals.filter(w=>w.t<startMs);
+  const wdAfter=RAW.withdrawals.filter(w=>w.t>=startMs);
 
-  const totalDepBtc=RAW.totalDepositsBtc;
-  const netFlow=RAW.netExternalFlowBtc;
-  const robotPnl=RAW.robotPnlBtc;
-  const roi=RAW.roiBtc;
+  const preDepBtc=depsBefore.reduce((s,d)=>s+d.btc,0);
+  const preWdBtc=wdBefore.reduce((s,w)=>s+w.btc,0);
+  const initialBtc=preDepBtc-preWdBtc;
+
+  const preDepUsdt=depsBefore.reduce((s,d)=>s+d.usdt,0);
+  const preWdUsdt=wdBefore.reduce((s,w)=>s+w.usdt,0);
+  const initialUsdt=preDepUsdt-preWdUsdt;
+
+  const postDepBtc=depsAfter.reduce((s,d)=>s+d.btc,0);
+  const postDepUsdt=depsAfter.reduce((s,d)=>s+d.usdt,0);
+  const postWdBtc=wdAfter.reduce((s,w)=>s+w.btc,0);
+  const postWdUsdt=wdAfter.reduce((s,w)=>s+w.usdt,0);
+
+  const totalCapBtc=initialBtc+postDepBtc-postWdBtc;
+  const totalCapUsdt=initialUsdt+postDepUsdt-postWdUsdt;
+
+  const robotPnl=RAW.currentBtc-totalCapBtc;
+  const roi=totalCapBtc>0?robotPnl/totalCapBtc:0;
 
   const filteredMonthly=RAW.monthlyPnl.filter(m=>m.t>=startMs);
   const mVals=filteredMonthly.map(m=>m.b);
   const avgMoPnl=mVals.length?mVals.reduce((a,b)=>a+b,0)/mVals.length:0;
   const variance=mVals.length?mVals.reduce((s,v)=>s+(v-avgMoPnl)**2,0)/mVals.length:0;
   const stdDev=Math.sqrt(variance);
-  const avgMoRoi=netFlow>0?avgMoPnl/netFlow:0;
+  const avgMoRoi=totalCapBtc>0?avgMoPnl/totalCapBtc:0;
   const reg=linreg(mVals);
   const trendDir=reg.slope>0.00001?'improving':reg.slope<-0.00001?'declining':'flat';
   const trendBadge=trendDir==='improving'?'<span class="trend-badge trend-up">↑</span>':trendDir==='declining'?'<span class="trend-badge trend-down">↓</span>':'<span class="trend-badge trend-flat">→</span>';
 
-  let realizedBtc=0,fundingBtc=0,commBtc=0,incCount=0;
-  for(const d of filteredDaily){realizedBtc+=d.b;incCount++;}
-
   $('cPortfolio').textContent=fmt8(RAW.currentBtc)+' BTC';
   $('cPortfolio').style.color='var(--text)';
-  $('cPortfolioSub').textContent='started with '+fmt8(RAW.totalCapitalDeployedBtc)+' BTC';
+  $('cPortfolioSub').textContent='capital deployed: '+fmt8(totalCapBtc)+' BTC';
 
-  $('cDeposits').textContent='+'+fmt8(RAW.totalCapitalDeployedBtc)+' BTC';
-  $('cDepositsSub').textContent='initial '+fmt8(RAW.initialCapitalBtc)+' + '+RAW.postBotDepositsCount+' deposits (+'+fmt8(RAW.postBotDepositsBtc)+')';
+  $('cDeposits').textContent='+'+fmt8(totalCapBtc)+' BTC';
+  $('cDepositsSub').textContent='initial '+fmt8(initialBtc)+' + '+depsAfter.length+' deposits (+'+fmt8(postDepBtc)+')' + (wdAfter.length?' - '+wdAfter.length+' withdrawals (-'+fmt8(postWdBtc)+')':'');
+
+  $('cDepositsUsdt').textContent='$'+totalCapUsdt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  $('cDepositsUsdtSub').textContent='initial $'+initialUsdt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+' + '+depsAfter.length+' dep ($'+postDepUsdt.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+')' + (wdAfter.length?' - wd ($'+postWdUsdt.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+')':'');
 
   $('cPnl').textContent=(robotPnl>=0?'+':'')+fmt8(robotPnl)+' BTC';
   $('cPnl').style.color=clr(robotPnl);
-  $('cPnlSub').textContent='net BTC gained by the bot';
+  $('cPnlSub').textContent='net BTC gained over '+days+' days';
 
   $('cRoi').textContent=fmtPct(roi);
   $('cRoi').style.color=clr(roi);
-  $('cRoiSub').textContent='BTC growth over '+RAW.botDays+' days';
+  $('cRoiSub').textContent='BTC growth over '+days+' days';
 
   $('cMonthlyRoi').textContent=fmtPct(avgMoRoi);
   $('cMonthlyRoi').style.color=clr(avgMoRoi);
@@ -1145,9 +1151,13 @@ async function main() {
     } else {
       bv = toBtc(d.coin, amt, priceMap);
     }
-    depositDetails.push({ ...d, btcValue: bv, btcPriceAtTime: bp });
+    let usdtVal;
+    if (d.coin === 'BTC') { usdtVal = amt * bp; }
+    else if (stablecoins.includes(d.coin)) { usdtVal = amt; }
+    else { usdtVal = bv * bp; }
+    depositDetails.push({ ...d, btcValue: bv, btcPriceAtTime: bp, usdtValue: usdtVal });
     totalDepositsBtc += bv;
-    console.log(`   ${d.coin}: ${amt} → ${bv.toFixed(8)} BTC (BTC price: $${bp.toFixed(0)})`);
+    console.log(`   ${d.coin}: ${amt} → ${bv.toFixed(8)} BTC ($${usdtVal.toFixed(2)}) (BTC price: $${bp.toFixed(0)})`);
   }
 
   console.log('4. Withdrawals (full history)...');
@@ -1166,9 +1176,13 @@ async function main() {
     } else {
       bv = toBtc(w.coin, amt, priceMap);
     }
-    withdrawalDetails.push({ ...w, btcValue: bv, btcPriceAtTime: bp, timestamp: wTime });
+    let wUsdtVal;
+    if (w.coin === 'BTC') { wUsdtVal = amt * bp; }
+    else if (stablecoins.includes(w.coin)) { wUsdtVal = amt; }
+    else { wUsdtVal = bv * bp; }
+    withdrawalDetails.push({ ...w, btcValue: bv, btcPriceAtTime: bp, timestamp: wTime, usdtValue: wUsdtVal });
     totalWithdrawalsBtc += bv;
-    console.log(`   ${w.coin}: ${amt} → ${bv.toFixed(8)} BTC (${w.completeTime || w.applyTime})`);
+    console.log(`   ${w.coin}: ${amt} → ${bv.toFixed(8)} BTC ($${wUsdtVal.toFixed(2)}) (${w.completeTime || w.applyTime})`);
   }
   console.log(`   ${withdrawals.length} withdrawals = ${totalWithdrawalsBtc.toFixed(8)} BTC`);
 
