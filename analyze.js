@@ -155,15 +155,19 @@ async function getFuturesIncome() {
   const all = [];
   let startTime = START_TIME;
   const incomeRetries = 15;
+  let page = 0;
   while (true) {
+    page++;
+    process.stdout.write(`   page ${page} (${all.length} records so far, from ${new Date(startTime).toISOString().slice(0,10)})...\r`);
     const batch = await withRetry(() => fapiRequest('/fapi/v1/income', { startTime, limit: 1000 }), incomeRetries);
     if (!Array.isArray(batch) || !batch.length) break;
     all.push(...batch);
     const lastTime = parseInt(batch[batch.length - 1].time);
     if (lastTime >= NOW || batch.length < 1000) break;
     startTime = lastTime + 1;
-    await sleep(800);
+    await sleep(500);
   }
+  process.stdout.write('\n');
   return all;
 }
 
