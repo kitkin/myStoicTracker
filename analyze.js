@@ -558,6 +558,13 @@ ${(() => {
 const RAW = {
   currentBtc: ${totalBalanceBtc.toFixed(10)},
   btcPrice: ${btcPrice},
+  totalDepositsBtc: ${totalDepositsBtc.toFixed(10)},
+  totalWithdrawalsBtc: ${totalWithdrawalsBtc.toFixed(10)},
+  totalDepositsCount: ${deposits.length},
+  totalWithdrawalsCount: ${withdrawals.length},
+  netExternalFlowBtc: ${netExternalFlowBtc.toFixed(10)},
+  robotPnlBtc: ${robotPnlBtc.toFixed(10)},
+  roiBtc: ${roiBtc.toFixed(10)},
   dailyPnl: [${incomeTimeline.map(d => `{t:${d.time},b:${d.dailyBtc.toFixed(12)}}`).join(',')}],
   deposits: [${depositDetails.map(d => `{t:${d.insertTime},btc:${d.btcValue.toFixed(12)},coin:"${d.coin}",amt:${parseFloat(d.amount).toFixed(12)}}`).join(',')}],
   monthlyPnl: [${monthlyPnl.map(m => `{k:"${m.key}",t:${m.time},b:${m.pnlBtc.toFixed(12)},u:${m.pnlUsdt.toFixed(4)}}`).join(',')}]
@@ -586,17 +593,19 @@ function masterRecalc(){
   const totalPnlBtc=filteredDaily.reduce((s,d)=>s+d.b,0);
 
   const filteredDeposits=RAW.deposits.filter(d=>d.t>=startMs);
-  const totalDepBtc=filteredDeposits.reduce((s,d)=>s+d.btc,0);
+  const filteredDepBtc=filteredDeposits.reduce((s,d)=>s+d.btc,0);
 
-  const robotPnl=RAW.currentBtc-totalDepBtc;
-  const roi=totalDepBtc>0?robotPnl/totalDepBtc:0;
+  const totalDepBtc=RAW.totalDepositsBtc;
+  const netFlow=RAW.netExternalFlowBtc;
+  const robotPnl=RAW.robotPnlBtc;
+  const roi=RAW.roiBtc;
 
   const filteredMonthly=RAW.monthlyPnl.filter(m=>m.t>=startMs);
   const mVals=filteredMonthly.map(m=>m.b);
   const avgMoPnl=mVals.length?mVals.reduce((a,b)=>a+b,0)/mVals.length:0;
   const variance=mVals.length?mVals.reduce((s,v)=>s+(v-avgMoPnl)**2,0)/mVals.length:0;
   const stdDev=Math.sqrt(variance);
-  const avgMoRoi=totalDepBtc>0?avgMoPnl/totalDepBtc:0;
+  const avgMoRoi=netFlow>0?avgMoPnl/netFlow:0;
   const reg=linreg(mVals);
   const trendDir=reg.slope>0.00001?'improving':reg.slope<-0.00001?'declining':'flat';
   const trendBadge=trendDir==='improving'?'<span class="trend-badge trend-up">↑</span>':trendDir==='declining'?'<span class="trend-badge trend-down">↓</span>':'<span class="trend-badge trend-flat">→</span>';
@@ -609,7 +618,7 @@ function masterRecalc(){
   $('cPortfolioSub').textContent=fmtU(RAW.currentBtc*RAW.btcPrice);
 
   $('cDeposits').textContent='+'+fmt8(totalDepBtc)+' BTC';
-  $('cDepositsSub').textContent=filteredDeposits.length+' deposits (from '+$('startDate').value+')';
+  $('cDepositsSub').textContent=RAW.totalDepositsCount+' deposits total, '+RAW.totalWithdrawalsCount+' withdrawals';
 
   $('cPnl').textContent=(robotPnl>=0?'+':'')+fmt8(robotPnl)+' BTC';
   $('cPnl').style.color=clr(robotPnl);
