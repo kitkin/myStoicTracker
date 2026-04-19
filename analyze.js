@@ -290,7 +290,9 @@ function generateHTML(data) {
     botStartTime, botStartDate, botDays,
     initialCapitalBtc, preBotDepositsBtc, preBotWithdrawalsBtc,
     postBotDepositsBtc, postBotWithdrawalsBtc, totalCapitalDeployedBtc,
-    depositsBeforeBot, depositsAfterBot, withdrawalsBeforeBot, withdrawalsAfterBot
+    depositsBeforeBot, depositsAfterBot, withdrawalsBeforeBot, withdrawalsAfterBot,
+    initialBalanceAtBotStartBtc, settledPnlDuringBotBtc,
+    cashFlowInitialBtc, cashFlowCapitalBtc, cashFlowPnlBtc
   } = data;
 
   const fmt = v => (v === 0 || isNaN(v)) ? '0.00000000' : v.toFixed(8);
@@ -482,14 +484,15 @@ ${trendChart ? `<div class="chart-box"><h3>Monthly ROI Trend + 12-Month Forecast
 
 <h2 class="section-title">Capital Timeline</h2>
 <div class="card" style="font-size:13px;line-height:1.8;margin-bottom:20px">
-<p><strong>Bot start date:</strong> ${botStartDate} (${botDays} days ago)</p>
-<p><strong>Initial capital (before bot):</strong> ${fmt(initialCapitalBtc)} BTC ($${fmtU((() => { const pd = depositDetails.filter(d => d.insertTime < botStartTime).reduce((s,d) => s + d.usdtValue, 0); const pw = withdrawalDetails.filter(w => w.timestamp < botStartTime).reduce((s,w) => s + w.usdtValue, 0); return pd - pw; })())}) &mdash; from ${depositsBeforeBot.length} deposits minus ${withdrawalsBeforeBot.length} withdrawals</p>
+<p><strong>Bot start date:</strong> ${botStartDate} (${botDays} days ago) <span style="color:var(--muted);font-size:11px">— detected as the date of the first futures-income record on this account</span></p>
+<p><strong>Initial balance at bot start:</strong> ${fmt(initialBalanceAtBotStartBtc)} BTC <span style="color:var(--muted);font-size:11px">— the actual account equity on that day, derived backward from current balance: ${fmt(totalBalanceBtc)} − settled PnL ${fmt(settledPnlDuringBotBtc)} − unrealized ${fmt(totalUnrealizedBtc)} − deposits ${fmt(postBotDepositsBtc)} + withdrawals ${fmt(postBotWithdrawalsBtc)}</span></p>
 <p><strong>Added during bot operation:</strong> +${fmt(postBotDepositsBtc)} BTC ($${fmtU(depositsAfterBot.reduce((s,d) => s + d.usdtValue, 0))}) from ${depositsAfterBot.length} deposits</p>
 <p><strong>Withdrawn during bot operation:</strong> -${fmt(postBotWithdrawalsBtc)} BTC ($${fmtU(withdrawalsAfterBot.reduce((s,w) => s + w.usdtValue, 0))}) from ${withdrawalsAfterBot.length} withdrawals</p>
-<p><strong>Total capital deployed:</strong> ${fmt(totalCapitalDeployedBtc)} BTC ($${fmtU((() => { const td = depositDetails.reduce((s,d) => s + d.usdtValue, 0); const tw = withdrawalDetails.reduce((s,w) => s + w.usdtValue, 0); return td - tw; })())})</p>
+<p><strong>Total capital deployed:</strong> ${fmt(totalCapitalDeployedBtc)} BTC <span style="color:var(--muted);font-size:11px">(start balance + deposits − withdrawals during bot)</span></p>
 <p><strong>Current portfolio:</strong> ${fmt(totalBalanceBtc)} BTC <span style="color:var(--muted);font-size:11px">(includes +${fmt(totalUnrealizedBtc)} BTC unrealized from ${futuresPositions.length} open positions)</span></p>
 <p><strong>BTC gained by bot (total incl. unrealized):</strong> <span style="color:${roiColor}">${pnlSign}${fmt(robotPnlBtc)} BTC</span> &mdash; ROI: <span style="color:${roiColor}">${(roiBtc * 100).toFixed(2)}%</span></p>
 <p><strong>BTC gained by bot (realized only):</strong> <span style="color:${(robotPnlBtc - totalUnrealizedBtc) >= 0 ? '#00c853' : '#ff1744'}">${(robotPnlBtc - totalUnrealizedBtc) >= 0 ? '+' : ''}${fmt(robotPnlBtc - totalUnrealizedBtc)} BTC</span> &mdash; ROI: <span style="color:${(robotPnlBtc - totalUnrealizedBtc) >= 0 ? '#00c853' : '#ff1744'}">${totalCapitalDeployedBtc > 0 ? (((robotPnlBtc - totalUnrealizedBtc) / totalCapitalDeployedBtc) * 100).toFixed(2) : '0.00'}%</span> &mdash; from closed trades (PNL + funding + commissions)</p>
+<p style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border);font-size:11px;color:var(--muted)"><strong style="color:var(--muted)">Cash-flow sanity check (legacy view):</strong> if we instead summed all historical deposits (${depositsBeforeBot.length} pre-bot + ${depositsAfterBot.length} during) minus all historical withdrawals (${withdrawalsBeforeBot.length} pre-bot + ${withdrawalsAfterBot.length} during), we'd get capital ${fmt(cashFlowCapitalBtc)} BTC and a P&L of ${cashFlowPnlBtc >= 0 ? '+' : ''}${fmt(cashFlowPnlBtc)} BTC. The difference of ${(initialBalanceAtBotStartBtc - cashFlowInitialBtc >= 0 ? '+' : '') + fmt(initialBalanceAtBotStartBtc - cashFlowInitialBtc)} BTC vs. balance-based comes from pre-bot personal trading on the same account, which is correctly excluded from bot performance.</p>
 </div>
 
 <h2 class="section-title">All Deposits (Money Sent to Binance)</h2>
@@ -512,15 +515,29 @@ ${withdrawalDetails.length > 0 ? `<table><thead><tr><th>#</th><th>Date</th><th>P
 <table><thead><tr><th>Symbol</th><th>Side</th><th>Size</th><th>Entry</th><th>PNL (BTC)</th></tr></thead>
 <tbody>${topPositions.map(p => { const pb = btcPrice ? p.pnlUsdt / btcPrice : 0; const sd = p.qty > 0 ? 'LONG' : 'SHORT'; const sc = p.qty > 0 ? 'positive' : 'negative'; const pc = pb >= 0 ? 'positive' : 'negative'; return '<tr><td><strong>' + p.symbol + '</strong></td><td class="' + sc + '">' + sd + '</td><td>' + Math.abs(p.qty).toFixed(4) + '</td><td>' + p.entry.toFixed(6) + '</td><td class="' + pc + '">' + (pb >= 0 ? '+' : '') + fmtS(pb) + '</td></tr>'; }).join('')}</tbody></table>
 
+<h2 class="section-title">Strategy notes from the treasurer</h2>
+<div class="card" style="font-size:12px;line-height:1.75;border-left:3px solid var(--gold);padding-left:18px">
+<p style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px">Source: Nodari Kolmakhidze (treasurer / quant), April 19 2026</p>
+<p><strong>BTC as collateral.</strong> The strategy uses BTC as collateral and shorts BTC perpetuals to earn funding on that collateral. Some spot trades are done as part of hedge / collateral management.</p>
+<p><strong>Always-on positions, dynamic sizing.</strong> Trades are open at all times; their size is rebalanced hourly. The strategic goal is to keep ~50% of capital long and ~50% short, finding coins that should outperform vs. the ones being shorted.</p>
+<p><strong>Funding earned on collateral, not full capital.</strong> At ~3x leverage, funding income is paid on the collateral notional, not on the full traded capital, which is the structural source of BTC accumulation.</p>
+<p><strong>Performance fees are withdrawn periodically.</strong> Performance fees are transferred out of this account, which produces visible drops in the balance curve that are NOT trading P&L. They are deducted from the bot's gross gains.</p>
+<p><strong>Why a futures-only PnL reconstruction never matches perfectly.</strong> Looking only at futures-only trades won't reproduce the full PnL path: BTC collateral mechanics, spot hedging trades, and periodic fee withdrawals all affect the BTC balance independently of futures realized PnL. The most reliable performance signal is the BTC balance itself, net of deposits / withdrawals.</p>
+</div>
+
 <h2 class="section-title">Methodology</h2>
 <div class="card" style="font-size:12px;line-height:1.8">
 <p><strong>Strategy:</strong> The bot trades to accumulate more BTC, not USD. All metrics are denominated in BTC. USD price changes do not affect performance measurement.</p>
-<p><strong>Portfolio Value</strong> = Futures wallet balance + Unrealized PNL, measured in BTC.</p>
-<p><strong>Robot P&L</strong> = Current BTC portfolio − Total BTC capital deployed. Shows how many BTC the bot has earned.</p>
+<p><strong>Portfolio Value</strong> = Futures wallet balance + Unrealized PNL + Spot wallet balance, all measured in BTC.</p>
+<p><strong>Initial capital — balance-based methodology.</strong> Initial capital at the Analysis Start Date is the <em>actual account balance</em> at that moment, computed by working backward from current balance:<br>
+<code style="font-size:11px;background:rgba(255,255,255,0.05);padding:2px 6px;border-radius:3px">balance_start = balance_now − settled_PnL_during − unrealized_now − deposits_during + withdrawals_during</code><br>
+This matches the treasurer's accounting and excludes any pre-bot personal trading churn from earlier deposits / withdrawals on the same Binance account.</p>
+<p><strong>Capital deployed</strong> = Initial balance at start + deposits during period − withdrawals during period.</p>
+<p><strong>Robot P&L</strong> = Current BTC portfolio − Total BTC capital deployed. Shows how many BTC the bot has earned (gross of any performance fees that were withdrawn).</p>
 <p><strong>ROI</strong> = Robot P&L / Total capital deployed. Measures BTC growth percentage.</p>
-<p><strong>Equity Curve</strong> = Starting capital grown by daily BTC compound returns. Shows BTC accumulation trajectory.</p>
+<p><strong>Realized vs. Total P&L.</strong> "Realized only" excludes the current mark-to-market value of open positions; "incl. Unrealized" includes them. Because positions are always on, Total is the more representative figure.</p>
+<p><strong>Equity Curve</strong> = Starting capital grown by daily BTC compound returns.</p>
 <p><strong>Drawdown</strong> = Decline from the BTC equity peak. Max drawdown = largest peak-to-trough BTC loss.</p>
-<p><strong>Rolling 30-Day PNL</strong> = BTC earned over a sliding 30-day window. Reveals performance stability.</p>
 <p><strong>Sharpe Ratio</strong> = (avg daily BTC return / stddev) × √365. Above 1.0 = good risk-adjusted BTC returns.</p>
 <p><strong>Profit Factor</strong> = Gross BTC profits / Gross BTC losses. Above 1.0 means bot earns more BTC than it loses.</p>
 <p><strong>Forecast</strong> = Portfolio × (1 + monthly BTC ROI)^months. Projects future BTC accumulation based on historical BTC performance.</p>
@@ -621,9 +638,10 @@ function masterRecalc(){
   const wdBefore=RAW.withdrawals.filter(w=>w.t<startMs);
   const wdAfter=RAW.withdrawals.filter(w=>w.t>=startMs);
 
+  // Cash-flow accounting (legacy / for sanity check display)
   const preDepBtc=depsBefore.reduce((s,d)=>s+d.btc,0);
   const preWdBtc=wdBefore.reduce((s,w)=>s+w.btc,0);
-  const initialBtc=preDepBtc-preWdBtc;
+  const cashFlowInitialBtc=preDepBtc-preWdBtc;
 
   const preDepUsdt=depsBefore.reduce((s,d)=>s+d.usdt,0);
   const preWdUsdt=wdBefore.reduce((s,w)=>s+w.usdt,0);
@@ -634,6 +652,12 @@ function masterRecalc(){
   const postWdBtc=wdAfter.reduce((s,w)=>s+w.btc,0);
   const postWdUsdt=wdAfter.reduce((s,w)=>s+w.usdt,0);
 
+  // BALANCE-BASED initial capital: actual account balance at startDate, derived from
+  // current total balance by subtracting everything that happened since then.
+  // Identity: balance_now = balance_start + settled_pnl_since + unrealized_now + (deposits - withdrawals)
+  // Therefore: balance_start = balance_now - settled_pnl_since - unrealized_now - deposits_since + withdrawals_since
+  const initialBtc=RAW.currentBtc-totalPnlBtc-RAW.unrealizedBtc-postDepBtc+postWdBtc;
+
   const totalCapBtc=initialBtc+postDepBtc-postWdBtc;
   const totalCapUsdt=initialUsdt+postDepUsdt-postWdUsdt;
 
@@ -641,6 +665,9 @@ function masterRecalc(){
   const roi=totalCapBtc>0?robotPnl/totalCapBtc:0;
   const robotPnlRealized=robotPnl-RAW.unrealizedBtc;
   const roiRealized=totalCapBtc>0?robotPnlRealized/totalCapBtc:0;
+
+  // Pre-bot personal trading PnL = balance-based initial - cash-flow initial
+  const preBotPersonalPnl=initialBtc-cashFlowInitialBtc;
 
   const filteredMonthly=RAW.monthlyPnl.filter(m=>m.t>=startMs);
   const mVals=filteredMonthly.map(m=>m.b);
@@ -657,10 +684,13 @@ function masterRecalc(){
   $('cPortfolioSub').textContent='capital deployed: '+fmt8(totalCapBtc)+' BTC';
 
   $('cDeposits').textContent='+'+fmt8(totalCapBtc)+' BTC';
-  $('cDepositsSub').textContent='initial '+fmt8(initialBtc)+' + '+depsAfter.length+' deposits (+'+fmt8(postDepBtc)+')' + (wdAfter.length?' - '+wdAfter.length+' withdrawals (-'+fmt8(postWdBtc)+')':'');
+  $('cDepositsSub').textContent='start balance '+fmt8(initialBtc)+' + '+depsAfter.length+' deposits (+'+fmt8(postDepBtc)+')' + (wdAfter.length?' - '+wdAfter.length+' withdrawals (-'+fmt8(postWdBtc)+')':'');
 
-  $('cDepositsUsdt').textContent='$'+totalCapUsdt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
-  $('cDepositsUsdtSub').textContent='initial $'+initialUsdt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+' + '+depsAfter.length+' dep ($'+postDepUsdt.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+')' + (wdAfter.length?' - wd ($'+postWdUsdt.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+')':'');
+  // USDT view: deposits at historical USDT-at-time, start balance valued at current BTC price (approximation)
+  const initialUsdtBalEst=initialBtc*RAW.btcPrice;
+  const totalCapUsdtBal=initialUsdtBalEst+postDepUsdt-postWdUsdt;
+  $('cDepositsUsdt').textContent='$'+totalCapUsdtBal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  $('cDepositsUsdtSub').textContent='start ~$'+initialUsdtBalEst.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+' + '+depsAfter.length+' dep ($'+postDepUsdt.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+')' + (wdAfter.length?' - wd ($'+postWdUsdt.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0})+')':'');
 
   $('cPnl').textContent=(robotPnl>=0?'+':'')+fmt8(robotPnl)+' BTC';
   $('cPnl').style.color=clr(robotPnl);
@@ -1304,6 +1334,8 @@ async function main() {
   const futuresPositions = (futuresAccount.positions || [])
     .filter(p => parseFloat(p.positionAmt) !== 0)
     .map(p => ({ symbol: p.symbol, qty: parseFloat(p.positionAmt), entry: parseFloat(p.entryPrice), pnlUsdt: parseFloat(p.unrealizedProfit), leverage: parseInt(p.leverage) }));
+  const totalUnrealizedUsdt = futuresPositions.reduce((s, p) => s + p.pnlUsdt, 0);
+  const totalUnrealizedBtc = btcPrice ? totalUnrealizedUsdt / btcPrice : 0;
 
   // Detect bot start date from first income record
   const sortedIncome = [...futuresIncome].sort((a, b) => parseInt(a.time) - parseInt(b.time));
@@ -1319,34 +1351,61 @@ async function main() {
 
   const preBotDepositsBtc = depositsBeforeBot.reduce((s, d) => s + d.btcValue, 0);
   const preBotWithdrawalsBtc = withdrawalsBeforeBot.reduce((s, w) => s + w.btcValue, 0);
-  const initialCapitalBtc = preBotDepositsBtc - preBotWithdrawalsBtc;
 
   const postBotDepositsBtc = depositsAfterBot.reduce((s, d) => s + d.btcValue, 0);
   const postBotWithdrawalsBtc = withdrawalsAfterBot.reduce((s, w) => s + w.btcValue, 0);
 
+  // Build income timeline FIRST so we can compute settled PnL during bot period
+  console.log('\n9. Building analytics...');
+  const incomeTimeline = buildIncomeTimeline(futuresIncome, dailyPrices, btcPrice);
+  const weeklyPnl = buildWeeklyPnl(futuresIncome, dailyPrices, btcPrice);
+  const monthlyPnl = buildMonthlyPnl(futuresIncome, dailyPrices, btcPrice);
+
+  // === BALANCE-BASED INITIAL CAPITAL (matches treasurer methodology) ===
+  // Instead of summing historical cash flows (which includes pre-bot personal trading
+  // churn and test deposits/withdrawals from 2024-2025), compute the actual account
+  // balance at bot start by working backward from current total balance.
+  //
+  // identity: balance_now = balance_start + settled_pnl_during + unrealized_now + (deposits - withdrawals)
+  // therefore: balance_start = balance_now - settled_pnl_during - unrealized_now - deposits + withdrawals
+  // (assumes unrealized PnL on open positions at bot start was 0, which is true if bot
+  // opened all current positions during the bot period)
+  const settledPnlDuringBotBtc = incomeTimeline
+    .filter(d => d.time >= botStartTime)
+    .reduce((s, d) => s + d.dailyBtc, 0);
+  const initialBalanceAtBotStartBtc =
+    totalBalanceBtc - settledPnlDuringBotBtc - totalUnrealizedBtc - postBotDepositsBtc + postBotWithdrawalsBtc;
+
+  // Use balance-based methodology for initial capital
+  const initialCapitalBtc = initialBalanceAtBotStartBtc;
   const totalCapitalDeployedBtc = initialCapitalBtc + postBotDepositsBtc - postBotWithdrawalsBtc;
   const netExternalFlowBtc = totalDepositsBtc - totalWithdrawalsBtc;
-  const robotPnlBtc = totalBalanceBtc - netExternalFlowBtc;
+  const robotPnlBtc = totalBalanceBtc - totalCapitalDeployedBtc;
   const roiBtc = totalCapitalDeployedBtc > 0 ? robotPnlBtc / totalCapitalDeployedBtc : 0;
+
+  // Cash-flow accounting (legacy / sanity check)
+  const cashFlowInitialBtc = preBotDepositsBtc - preBotWithdrawalsBtc;
+  const cashFlowCapitalBtc = cashFlowInitialBtc + postBotDepositsBtc - postBotWithdrawalsBtc;
+  const cashFlowPnlBtc = totalBalanceBtc - cashFlowCapitalBtc;
 
   const botDays = Math.round((NOW - botStartTime) / 86400000);
 
-  console.log('\n=== RESULTS (from bot start) ===');
+  console.log('\n=== RESULTS (balance-based methodology) ===');
   console.log(`Bot running: ${botDays} days (since ${botStartDate})`);
-  console.log(`Initial capital (pre-bot): ${initialCapitalBtc.toFixed(8)} BTC`);
-  console.log(`  Pre-bot deposits: ${depositsBeforeBot.length} = +${preBotDepositsBtc.toFixed(8)} BTC`);
-  console.log(`  Pre-bot withdrawals: ${withdrawalsBeforeBot.length} = -${preBotWithdrawalsBtc.toFixed(8)} BTC`);
+  console.log(`Initial balance at bot start: ${initialBalanceAtBotStartBtc.toFixed(8)} BTC`);
+  console.log(`  (= current ${totalBalanceBtc.toFixed(8)} - settled PnL ${settledPnlDuringBotBtc.toFixed(8)} - unrealized ${totalUnrealizedBtc.toFixed(8)} - deposits ${postBotDepositsBtc.toFixed(8)} + withdrawals ${postBotWithdrawalsBtc.toFixed(8)})`);
   console.log(`Deposits during bot: ${depositsAfterBot.length} = +${postBotDepositsBtc.toFixed(8)} BTC`);
   console.log(`Withdrawals during bot: ${withdrawalsAfterBot.length} = -${postBotWithdrawalsBtc.toFixed(8)} BTC`);
   console.log(`Total capital deployed: ${totalCapitalDeployedBtc.toFixed(8)} BTC`);
   console.log(`Current portfolio:   ${totalBalanceBtc.toFixed(8)} BTC`);
   console.log(`Robot P&L:   ${robotPnlBtc >= 0 ? '+' : ''}${robotPnlBtc.toFixed(8)} BTC`);
   console.log(`ROI (BTC):   ${(roiBtc * 100).toFixed(2)}%`);
+  console.log(`\n[Legacy cash-flow methodology for comparison:]`);
+  console.log(`  Pre-bot net cash flow: ${cashFlowInitialBtc.toFixed(8)} BTC (${depositsBeforeBot.length} dep - ${withdrawalsBeforeBot.length} wd)`);
+  console.log(`  Cash-flow capital deployed: ${cashFlowCapitalBtc.toFixed(8)} BTC`);
+  console.log(`  Cash-flow Robot P&L: ${cashFlowPnlBtc.toFixed(8)} BTC`);
+  console.log(`  Difference (pre-bot personal trading PnL): ${(initialBalanceAtBotStartBtc - cashFlowInitialBtc).toFixed(8)} BTC`);
 
-  console.log('\n9. Building analytics...');
-  const incomeTimeline = buildIncomeTimeline(futuresIncome, dailyPrices, btcPrice);
-  const weeklyPnl = buildWeeklyPnl(futuresIncome, dailyPrices, btcPrice);
-  const monthlyPnl = buildMonthlyPnl(futuresIncome, dailyPrices, btcPrice);
   const forecast = computeForecastData(monthlyPnl, totalBalanceBtc, netExternalFlowBtc);
   console.log(`   ${weeklyPnl.length} weeks, ${monthlyPnl.length} months`);
   console.log(`   Avg monthly PNL: ${forecast.avgMonthlyPnlBtc.toFixed(8)} BTC`);
@@ -1365,7 +1424,9 @@ async function main() {
     botStartTime, botStartDate, botDays,
     initialCapitalBtc, preBotDepositsBtc, preBotWithdrawalsBtc,
     postBotDepositsBtc, postBotWithdrawalsBtc, totalCapitalDeployedBtc,
-    depositsBeforeBot, depositsAfterBot, withdrawalsBeforeBot, withdrawalsAfterBot
+    depositsBeforeBot, depositsAfterBot, withdrawalsBeforeBot, withdrawalsAfterBot,
+    initialBalanceAtBotStartBtc, settledPnlDuringBotBtc,
+    cashFlowInitialBtc, cashFlowCapitalBtc, cashFlowPnlBtc
   });
   fs.writeFileSync(path.join(__dirname, 'report.html'), html, 'utf-8');
   fs.mkdirSync(path.join(__dirname, 'report-data'), { recursive: true });
